@@ -73,7 +73,7 @@ class _HomeState extends State<Home> {
     try {
       final info = await PackageInfo.fromPlatform();
       final res = await http.get(Uri.parse(
-          'https://raw.githubusercontent.com/YOUR_USERNAME/gari-hisab/main/version.json'));
+          ''https://raw.githubusercontent.com/mdenamulhoquebijoy1-debug/gari-hisab/main/version.json''));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (_isNewer(data['version'] as String, info.version)) {
