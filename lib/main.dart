@@ -43,8 +43,10 @@ String fd(DateTime d) => '${d.day}/${d.month}/${d.year}';
 String mk(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 double n0(dynamic v) => (v as num?)?.toDouble() ?? 0;
 
+// লাভ = ভাড়া - খরচ - কমিশন (ট্রিপের ক্ষেত্রে)
+double tripProfit(M e) => e['type'] == 'trip' ? (n0(e['amt']) - n0(e['cost']) - n0(e['commission'])) : 0;
 double inc(M e) => e['type'] == 'out' || e['type'] == 'self' ? 0 : n0(e['amt']);
-double ex(M e) => e['type'] == 'out' ? n0(e['amt']) : (e['type'] == 'trip' ? n0(e['cost']) : 0);
+double ex(M e) => e['type'] == 'out' ? n0(e['amt']) : (e['type'] == 'trip' ? (n0(e['cost']) + n0(e['commission'])) : 0);
 double sIn(Iterable<M> l) => l.fold<double>(0, (s, e) => s + inc(e));
 double sEx(Iterable<M> l) => l.fold<double>(0, (s, e) => s + ex(e));
 
@@ -207,6 +209,39 @@ class _HomeState extends State<Home> {
     );
   }
 
+  void showDriverDetails(String name) {
+    final trips = items.where((e) => e['driver'] == name && (e['type'] == 'trip' || e['type'] == 'self')).toList();
+    final totalTrips = trips.length;
+    final totalCommission = trips.fold<double>(0, (s, e) => s + n0(e['commission']));
+    final totalPaid = trips.fold<double>(0, (s, e) => s + n0(e['driver_pay']));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
+      appBar: AppBar(title: Text(name)),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Card(
+          color: Colors.teal.shade50,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(children: [
+              Text('মোট ট্রিপ: $totalTrips', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text('মোট কমিশন আয়: ৳${fm(totalCommission)}', style: const TextStyle(fontSize: 16)),
+              Text('মোট প্রাপ্ত: ৳${fm(totalPaid)}', style: const TextStyle(fontSize: 16)),
+              Text('বকেয়া: ৳${fm(totalCommission - totalPaid)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.orange)),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Text('ট্রিপসমূহ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ...trips.map((e) => ListTile(
+              leading: Icon(e['type'] == 'trip' ? Icons.route : Icons.directions_car),
+              title: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
+              subtitle: Text('কমিশন ৳${fm(n0(e['commission']))}'),
+              trailing: Text(n0(e['driver_pay']) > 0 ? 'দেওয়া হয়েছে' : 'বকেয়া', style: TextStyle(color: n0(e['driver_pay']) > 0 ? Colors.green : Colors.orange)),
+            )),
+      ]),
+    )));
+  }
+
   Future<void> addRem() async {
     final t = TextEditingController();
     DateTime d = DateTime.now().add(const Duration(days: 30));
@@ -250,13 +285,16 @@ class _HomeState extends State<Home> {
 
   Widget sumCard(String title, double value, Color color, IconData icon) => Expanded(
         child: Card(
-          color: color.withOpacity(0.1),
+          elevation: 2,
+          color: color.withOpacity(0.15),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(14),
             child: Column(children: [
-              Icon(icon, color: color),
-              Text(title),
-              Text('৳${fm(value)}', style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 16)),
+              Icon(icon, color: color, size: 32),
+              const SizedBox(height: 6),
+              Text(title, style: const TextStyle(fontSize: 13)),
+              Text('৳${fm(value)}', style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 18)),
             ]),
           ),
         ),
@@ -270,17 +308,29 @@ class _HomeState extends State<Home> {
       Row(children: [
         sumCard('আয়', i, Colors.green, Icons.account_balance_wallet),
         const SizedBox(width: 8),
-        sumCard('খরচ', o, Colors.red, Icons.receipt),
+        sumCard('খরচ', o, Colors.redAccent, Icons.receipt_long),
         const SizedBox(width: 8),
-        sumCard(pr >= 0 ? 'লাভ' : 'লোকসান', pr.abs(), pr >= 0 ? Colors.teal : Colors.orange, Icons.trending_up),
+        sumCard(pr >= 0 ? 'লাভ' : 'লোকসান', pr.abs(), pr >= 0 ? Colors.teal : Colors.deepOrange, Icons.trending_up),
       ]),
       const SizedBox(height: 20),
-      const Text('সাম্প্রতিক হিসাব', style: TextStyle(fontWeight: FontWeight.bold)),
-      ...shown.take(8).map((e) => ListTile(
-            leading: Icon(e['type'] == 'trip' ? Icons.route : e['type'] == 'self' ? Icons.directions_car : Icons.arrow_upward),
-            title: Text(e['type'] == 'trip' ? 'ট্রিপ' : e['type'] == 'self' ? 'নিজে ব্যবহার' : e['cat']),
-            subtitle: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
-            trailing: Text('৳${fm(n0(e['amt']))}'),
+      Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: Colors.teal.shade50, borderRadius: BorderRadius.circular(12)),
+        child: const Text('সাম্প্রতিক হিসাব', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+      ),
+      const SizedBox(height: 8),
+      ...shown.take(8).map((e) => Card(
+            margin: const EdgeInsets.only(bottom: 6),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: e['type'] == 'trip' ? Colors.indigo.shade100 : e['type'] == 'self' ? Colors.orange.shade100 : Colors.red.shade100,
+                child: Icon(e['type'] == 'trip' ? Icons.route : e['type'] == 'self' ? Icons.directions_car : Icons.arrow_upward,
+                    color: e['type'] == 'trip' ? Colors.indigo : e['type'] == 'self' ? Colors.orange : Colors.red),
+              ),
+              title: Text(e['type'] == 'trip' ? 'ট্রিপ • লাভ ৳${fm(tripProfit(e))}' : e['type'] == 'self' ? 'নিজে ব্যবহার' : e['cat']),
+              subtitle: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
+              trailing: Text('৳${fm(n0(e['amt']))}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
           )),
       const SizedBox(height: 80),
     ]);
@@ -307,23 +357,25 @@ class _HomeState extends State<Home> {
           final bal = sal - paidSalary - adv + unpaid;
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(child: Text(n, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
-                  IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
+            child: InkWell(
+              onTap: () => showDriverDetails(n),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Expanded(child: Text(n, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+                    IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
+                  ]),
+                  Text('মাসিক বেতন: ৳${fm(sal)}'),
+                  Text('কমিশন (এই মাস): ৳${fm(commission)}'),
+                  Text('এখনই দিয়েছি: ৳${fm(paidNow)}'),
+                  Text('কমিশন বকেয়া: ৳${fm(unpaid)}'),
+                  const SizedBox(height: 4),
+                  Text(bal >= 0 ? 'মোট বকেয়া: ৳${fm(bal)}' : 'বেশি দেওয়া হয়েছে: ৳${fm(-bal)}',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: bal > 0 ? Colors.orange : Colors.teal)),
+                  const Align(alignment: Alignment.centerRight, child: Text('বিস্তারিত দেখতে ট্যাপ করুন →', style: TextStyle(fontSize: 12, color: Colors.grey))),
                 ]),
-                Text('মাসিক বেতন: ৳${fm(sal)}'),
-                Text('বেতন দিয়েছি: ৳${fm(paidSalary)}'),
-                Text('অগ্রিম: ৳${fm(adv)}'),
-                Text('কমিশন (মোট): ৳${fm(commission)}'),
-                Text('এখনই দিয়েছি: ৳${fm(paidNow)}'),
-                Text('কমিশন বকেয়া: ৳${fm(unpaid)}'),
-                const SizedBox(height: 4),
-                Text(bal >= 0 ? 'মোট বকেয়া: ৳${fm(bal)}' : 'বেশি দেওয়া হয়েছে: ৳${fm(-bal)}',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: bal > 0 ? Colors.orange : Colors.teal)),
-              ]),
+              ),
             ),
           );
         }),
@@ -339,6 +391,7 @@ class _HomeState extends State<Home> {
     return ListView(padding: const EdgeInsets.all(12), children: [
       monthNav(),
       Card(
+        color: Colors.teal.shade50,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(children: [
@@ -514,7 +567,7 @@ class _AddEditPageState extends State<AddEditPage> {
             const SizedBox(height: 12),
             TextField(controller: costC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'খরচ (তেল/টোল) (৳)', border: OutlineInputBorder())),
             const SizedBox(height: 12),
-            TextField(controller: commissionC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'ড্রাইভারের কমিশন (৳)', border: OutlineInputBorder(), helperText: 'এই ট্রিপ থেকে ড্রাইভার কত পাবে')),
+            TextField(controller: commissionC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'ড্রাইভারের কমিশন (৳)', border: OutlineInputBorder(), helperText: 'লাভ থেকে বাদ যাবে')),
             const SizedBox(height: 8),
             CheckboxListTile(
               value: paidNow,
