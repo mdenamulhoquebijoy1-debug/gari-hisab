@@ -69,7 +69,7 @@ class _HomeState extends State<Home> {
     checkUpdate();
   }
 
-   Future<void> checkUpdate() async {
+  Future<void> checkUpdate() async {
     try {
       final info = await PackageInfo.fromPlatform();
       final url = 'https://raw.githubusercontent.com/mdenamulhoquebijoy1-debug/gari-hisab/main/version.json';
@@ -123,7 +123,7 @@ class _HomeState extends State<Home> {
       await file.writeAsBytes(res.bodyBytes);
       await OpenFile.open(file.path);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ডাউনলোড ব্যর্থ: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ডাউনলোড ব্যর্থ')));
     }
   }
 
@@ -254,7 +254,7 @@ class _HomeState extends State<Home> {
 
   Widget listTab() {
     final l = shown;
-    if (l.isEmpty) return const Center(child: Text('কোনো হিসাব নেই\n+ বাটনে চাপুন'));
+    if (l.isEmpty) return const Center(child: Text('কোনো হিসাব নেই\nমেনু থেকে যোগ করুন'));
     return ListView.builder(
       itemCount: l.length,
       itemBuilder: (c, i) {
@@ -279,23 +279,47 @@ class _HomeState extends State<Home> {
     );
   }
 
-  Widget drvTab() => ListView(children: [
-        monthNav(),
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: FilledButton.icon(onPressed: () => editDriver(), icon: const Icon(Icons.person_add), label: const Text('ড্রাইভার যোগ')),
-        ),
-        if (drivers.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('ড্রাইভার যোগ করুন')),
-        for (final n in drivers.keys)
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: ListTile(
-              title: Text(n, style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text('মাসিক বেতন: ৳${fm(drivers[n] ?? 0)}'),
-              trailing: IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
+  Widget drvTab() {
+    final m = shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
+    return ListView(children: [
+      monthNav(),
+      Padding(
+        padding: const EdgeInsets.all(12),
+        child: FilledButton.icon(onPressed: () => editDriver(), icon: const Icon(Icons.person_add), label: const Text('ড্রাইভার যোগ')),
+      ),
+      if (drivers.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('ড্রাইভার যোগ করুন')),
+      for (final n in drivers.keys)
+        Builder(builder: (_) {
+          final mine = m.where((e) => e['driver'] == n).toList();
+          final sal = drivers[n] ?? 0;
+          final paid = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার বেতন'));
+          final adv = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার অগ্রিম'));
+          final tripPays = mine.fold<double>(0, (s, e) => s + n0(e['driver_pay']));
+          final bal = sal - paid - adv - tripPays;
+          return Card(
+            margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(child: Text(n, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+                  IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
+                ]),
+                Text('মাসিক বেতন: ৳${fm(sal)}'),
+                Text('এই মাসে ট্রিপ: ${mine.where((e) => e['type'] == 'trip' || e['type'] == 'self').length} টি'),
+                Text('বেতন দিয়েছি: ৳${fm(paid)}'),
+                Text('অগ্রিম: ৳${fm(adv)}'),
+                Text('ট্রিপ থেকে দিয়েছি: ৳${fm(tripPays)}'),
+                const SizedBox(height: 6),
+                Text(bal >= 0 ? 'বাকি: ৳${fm(bal)}' : 'বেশি দেওয়া হয়েছে: ৳${fm(-bal)}',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: bal > 0 ? Colors.deepOrange : Colors.teal)),
+              ]),
             ),
-          ),
-      ]);
+          );
+        }),
+      const SizedBox(height: 80),
+    ]);
+  }
 
   Widget reportTab() => const Center(child: Text('রিপোর্ট ট্যাব'));
 
@@ -343,18 +367,23 @@ class _HomeState extends State<Home> {
           ),
         ],
       ),
-      body: [dash(), listTab(), drvTab(), reportTab()][tab],
-      floatingActionButton: tab <= 1 ? FloatingActionButton(onPressed: () => addEdit(), child: const Icon(Icons.add)) : null,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (i) => setState(() => tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home), label: 'হোম'),
-          NavigationDestination(icon: Icon(Icons.list), label: 'হিসাব'),
-          NavigationDestination(icon: Icon(Icons.person), label: 'ড্রাইভার'),
-          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'রিপোর্ট'),
-        ],
+      drawer: Drawer(
+        child: ListView(
+          children: [
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Color(0xFF00695C)),
+              child: Text('মেনু', style: TextStyle(color: Colors.white, fontSize: 24)),
+            ),
+            ListTile(leading: const Icon(Icons.home), title: const Text('হোম'), onTap: () { setState(() => tab = 0); Navigator.pop(context); }),
+            ListTile(leading: const Icon(Icons.list), title: const Text('হিসাব'), onTap: () { setState(() => tab = 1); Navigator.pop(context); }),
+            ListTile(leading: const Icon(Icons.person), title: const Text('ড্রাইভার'), onTap: () { setState(() => tab = 2); Navigator.pop(context); }),
+            ListTile(leading: const Icon(Icons.bar_chart), title: const Text('রিপোর্ট'), onTap: () { setState(() => tab = 3); Navigator.pop(context); }),
+            const Divider(),
+            ListTile(leading: const Icon(Icons.add), title: const Text('নতুন হিসাব যোগ'), onTap: () { Navigator.pop(context); addEdit(); }),
+          ],
+        ),
       ),
+      body: [dash(), listTab(), drvTab(), reportTab()][tab],
     );
   }
 }
