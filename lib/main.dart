@@ -43,7 +43,6 @@ String fd(DateTime d) => '${d.day}/${d.month}/${d.year}';
 String mk(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 double n0(dynamic v) => (v as num?)?.toDouble() ?? 0;
 
-// নিজে ব্যবহার হোমের লাভ/লোকসানে যোগ হবে না
 double inc(M e) => e['type'] == 'out' || e['type'] == 'self' ? 0 : n0(e['amt']);
 double ex(M e) => e['type'] == 'out' ? n0(e['amt']) : (e['type'] == 'trip' ? n0(e['cost']) : 0);
 double sIn(Iterable<M> l) => l.fold<double>(0, (s, e) => s + inc(e));
@@ -300,10 +299,12 @@ class _HomeState extends State<Home> {
         Builder(builder: (c) {
           final mine = m.where((e) => e['driver'] == n).toList();
           final sal = drivers[n] ?? 0;
-          final paid = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার বেতন'));
+          final paidSalary = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার বেতন'));
           final adv = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার অগ্রিম'));
-          final tripPay = mine.fold<double>(0, (s, e) => s + n0(e['driver_pay']));
-          final bal = sal - paid - adv - tripPay;
+          final paidNow = mine.fold<double>(0, (s, e) => s + n0(e['driver_pay']));
+          final commission = mine.fold<double>(0, (s, e) => s + n0(e['commission']));
+          final unpaid = commission - paidNow;
+          final bal = sal - paidSalary - adv + unpaid;
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: Padding(
@@ -314,11 +315,13 @@ class _HomeState extends State<Home> {
                   IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
                 ]),
                 Text('মাসিক বেতন: ৳${fm(sal)}'),
-                Text('বেতন দিয়েছি: ৳${fm(paid)}'),
+                Text('বেতন দিয়েছি: ৳${fm(paidSalary)}'),
                 Text('অগ্রিম: ৳${fm(adv)}'),
-                Text('ট্রিপ থেকে দিয়েছি: ৳${fm(tripPay)}'),
+                Text('কমিশন (মোট): ৳${fm(commission)}'),
+                Text('এখনই দিয়েছি: ৳${fm(paidNow)}'),
+                Text('কমিশন বকেয়া: ৳${fm(unpaid)}'),
                 const SizedBox(height: 4),
-                Text(bal >= 0 ? 'বাকি পাবে: ৳${fm(bal)}' : 'বেশি দেওয়া হয়েছে: ৳${fm(-bal)}',
+                Text(bal >= 0 ? 'মোট বকেয়া: ৳${fm(bal)}' : 'বেশি দেওয়া হয়েছে: ৳${fm(-bal)}',
                     style: TextStyle(fontWeight: FontWeight.bold, color: bal > 0 ? Colors.orange : Colors.teal)),
               ]),
             ),
@@ -471,9 +474,10 @@ class AddEditPage extends StatefulWidget {
 
 class _AddEditPageState extends State<AddEditPage> {
   late String t;
-  late TextEditingController carC, amtC, costC, noteC, driverPayC;
+  late TextEditingController carC, amtC, costC, noteC, commissionC, driverPayC;
   late String cat, drv;
   late DateTime d;
+  bool paidNow = false;
 
   @override
   void initState() {
@@ -483,6 +487,7 @@ class _AddEditPageState extends State<AddEditPage> {
     amtC = TextEditingController();
     costC = TextEditingController();
     noteC = TextEditingController();
+    commissionC = TextEditingController();
     driverPayC = TextEditingController();
     cat = outCats.first;
     drv = noDrv;
@@ -491,7 +496,7 @@ class _AddEditPageState extends State<AddEditPage> {
 
   @override
   void dispose() {
-    carC.dispose(); amtC.dispose(); costC.dispose(); noteC.dispose(); driverPayC.dispose();
+    carC.dispose(); amtC.dispose(); costC.dispose(); noteC.dispose(); commissionC.dispose(); driverPayC.dispose();
     super.dispose();
   }
 
@@ -509,7 +514,19 @@ class _AddEditPageState extends State<AddEditPage> {
             const SizedBox(height: 12),
             TextField(controller: costC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'খরচ (তেল/টোল) (৳)', border: OutlineInputBorder())),
             const SizedBox(height: 12),
-            TextField(controller: driverPayC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'ড্রাইভারকে দিয়েছি (৳)', border: OutlineInputBorder())),
+            TextField(controller: commissionC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'ড্রাইভারের কমিশন (৳)', border: OutlineInputBorder(), helperText: 'এই ট্রিপ থেকে ড্রাইভার কত পাবে')),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              value: paidNow,
+              onChanged: (v) => setState(() => paidNow = v ?? false),
+              title: const Text('এখনই দিয়ে দিয়েছি'),
+              subtitle: const Text('টিক দিলে বকেয়ায় যোগ হবে না'),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+            if (paidNow) ...[
+              const SizedBox(height: 8),
+              TextField(controller: driverPayC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'কত দিয়েছি (৳)', border: OutlineInputBorder(), helperText: 'খালি রাখলে পুরো কমিশন দেওয়া ধরা হবে')),
+            ],
           ],
           if (t == 'out') ...[
             const SizedBox(height: 12),
@@ -535,6 +552,11 @@ class _AddEditPageState extends State<AddEditPage> {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('সঠিক পরিমাণ দিন')));
                   return;
                 }
+                final commission = double.tryParse(commissionC.text.trim()) ?? 0;
+                double paid = 0;
+                if (paidNow) {
+                  paid = double.tryParse(driverPayC.text.trim()) ?? commission;
+                }
                 Navigator.pop(context, {
                   'id': DateTime.now().millisecondsSinceEpoch,
                   'car': carC.text.trim().isEmpty ? 'আমার গাড়ি' : carC.text.trim(),
@@ -542,8 +564,9 @@ class _AddEditPageState extends State<AddEditPage> {
                   'cat': t == 'out' ? cat : (t == 'trip' ? 'ট্রিপ' : 'নিজে ব্যবহার'),
                   'amt': a,
                   'cost': (t == 'trip' || t == 'self') ? (double.tryParse(costC.text.trim()) ?? 0) : 0,
+                  'commission': (t == 'trip' || t == 'self') ? commission : 0,
                   'driver': drv == noDrv ? null : drv,
-                  'driver_pay': (t == 'trip' || t == 'self') ? (double.tryParse(driverPayC.text.trim()) ?? 0) : 0,
+                  'driver_pay': paid,
                   'note': noteC.text.trim(),
                   'date': d.toIso8601String(),
                 });
