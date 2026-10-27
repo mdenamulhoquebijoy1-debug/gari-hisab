@@ -22,7 +22,8 @@ jobs:
 
       - name: Add permissions
         run: |
-          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>\n    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
+          echo '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>' >> android/app/src/main/AndroidManifest.xml
+          echo '    <uses-permission android:name="android.permission.INTERNET"/>' >> android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
       - run: flutter build apk --release
