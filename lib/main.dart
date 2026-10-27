@@ -61,6 +61,7 @@ class _HomeState extends State<Home> {
   int tab = 0;
   DateTime month = DateTime.now();
   SharedPreferences? p;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -72,12 +73,11 @@ class _HomeState extends State<Home> {
   Future<void> checkUpdate() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      final url = 'https://raw.githubusercontent.com/mdenamulhoquebijoy1-debug/gari-hisab/main/version.json';
-      final res = await http.get(Uri.parse(url));
+      final res = await http.get(Uri.parse(
+          'https://raw.githubusercontent.com/mdenamulhoquebijoy1-debug/gari-hisab/main/version.json'));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        final latest = data['version'] as String;
-        if (_isNewer(latest, info.version)) {
+        if (_isNewer(data['version'] as String, info.version)) {
           if (!mounted) return;
           showDialog(
             context: context,
@@ -168,13 +168,12 @@ class _HomeState extends State<Home> {
     return l;
   }
 
-  Future<void> addEdit([M? old]) async {
+  Future<void> openAddPage(String type) async {
     final result = await Navigator.push<M>(
       context,
-      MaterialPageRoute(builder: (_) => AddEditPage(old: old, cars: cars, currentCar: car, drivers: drivers.keys.toList())),
+      MaterialPageRoute(builder: (_) => AddEditPage(initialType: type, cars: cars, currentCar: car, drivers: drivers.keys.toList())),
     );
     if (result != null) {
-      if (old != null) items.removeWhere((x) => x['id'] == old['id']);
       items.add(result);
       save();
     }
@@ -234,7 +233,7 @@ class _HomeState extends State<Home> {
         ),
       );
 
-  Widget dash() {
+  Widget homeTab() {
     final m = shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
     final i = sIn(m), o = sEx(m), pr = i - o;
     return ListView(padding: const EdgeInsets.all(12), children: [
@@ -247,153 +246,125 @@ class _HomeState extends State<Home> {
         sumCard(pr >= 0 ? 'লাভ' : 'লোকসান', pr.abs(), pr >= 0 ? Colors.teal : Colors.orange, Icons.trending_up),
       ]),
       const SizedBox(height: 20),
-      const Text('সাম্প্রতিক রিমাইন্ডার', style: TextStyle(fontWeight: FontWeight.bold)),
+      const Text('সাম্প্রতিক হিসাব', style: TextStyle(fontWeight: FontWeight.bold)),
+      ...shown.take(5).map((e) => ListTile(
+            title: Text(e['type'] == 'trip' ? 'ট্রিপ' : e['type'] == 'self' ? 'নিজে ব্যবহার' : e['cat']),
+            subtitle: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
+            trailing: Text('৳${fm(n0(e['amt']))}'),
+          )),
       const SizedBox(height: 80),
     ]);
   }
 
-  Widget listTab() {
-    final l = shown;
-    if (l.isEmpty) return const Center(child: Text('কোনো হিসাব নেই\nমেনু থেকে যোগ করুন'));
-    return ListView.builder(
-      itemCount: l.length,
-      itemBuilder: (c, i) {
-        final e = l[i];
-        final trip = e['type'] == 'trip';
-        final self = e['type'] == 'self';
-        final profit = trip ? (n0(e['amt']) - n0(e['cost'])) : 0.0;
-        return ListTile(
-          leading: Icon(trip ? Icons.route : (self ? Icons.directions_car : Icons.arrow_upward),
-              color: trip ? Colors.indigo : (self ? Colors.orange : Colors.red)),
-          title: Text(trip ? 'ট্রিপ • লাভ ৳${fm(profit)}' : self ? 'নিজে ব্যবহার • ৳${fm(n0(e['cost']))}' : '${e['cat']} • ৳${fm(n0(e['amt']))}'),
-          subtitle: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
-          onTap: () => addEdit(e),
-          trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () async {
-            if (await ask('মুছে ফেলবেন?')) {
-              items.removeWhere((x) => x['id'] == e['id']);
-              save();
-            }
-          }),
-        );
-      },
-    );
-  }
-
-  Widget drvTab() {
-    final m = shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
-    return ListView(children: [
-      monthNav(),
-      Padding(
-        padding: const EdgeInsets.all(12),
-        child: FilledButton.icon(onPressed: () => editDriver(), icon: const Icon(Icons.person_add), label: const Text('ড্রাইভার যোগ')),
-      ),
-      if (drivers.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('ড্রাইভার যোগ করুন')),
-      for (final n in drivers.keys)
-        Builder(builder: (_) {
-          final mine = m.where((e) => e['driver'] == n).toList();
-          final sal = drivers[n] ?? 0;
-          final paid = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার বেতন'));
-          final adv = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার অগ্রিম'));
-          final tripPays = mine.fold<double>(0, (s, e) => s + n0(e['driver_pay']));
-          final bal = sal - paid - adv - tripPays;
-          return Card(
-            margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(child: Text(n, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
-                  IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
-                ]),
-                Text('মাসিক বেতন: ৳${fm(sal)}'),
-                Text('এই মাসে ট্রিপ: ${mine.where((e) => e['type'] == 'trip' || e['type'] == 'self').length} টি'),
-                Text('বেতন দিয়েছি: ৳${fm(paid)}'),
-                Text('অগ্রিম: ৳${fm(adv)}'),
-                Text('ট্রিপ থেকে দিয়েছি: ৳${fm(tripPays)}'),
-                const SizedBox(height: 6),
-                Text(bal >= 0 ? 'বাকি: ৳${fm(bal)}' : 'বেশি দেওয়া হয়েছে: ৳${fm(-bal)}',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: bal > 0 ? Colors.deepOrange : Colors.teal)),
-              ]),
+  Widget driverTab() => ListView(children: [
+        monthNav(),
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: FilledButton.icon(onPressed: () => editDriver(), icon: const Icon(Icons.person_add), label: const Text('ড্রাইভার যোগ')),
+        ),
+        if (drivers.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('ড্রাইভার যোগ করুন')),
+        for (final n in drivers.keys)
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: ListTile(
+              title: Text(n, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text('মাসিক বেতন: ৳${fm(drivers[n] ?? 0)}'),
+              trailing: IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
             ),
-          );
-        }),
-      const SizedBox(height: 80),
-    ]);
-  }
+          ),
+      ]);
 
-  Widget reportTab() => const Center(child: Text('রিপোর্ট ট্যাব'));
+  Widget reportTab() => const Center(child: Text('রিপোর্ট'));
 
-  Future<void> backup() async {
-    await Clipboard.setData(ClipboardData(text: jsonEncode({'entries': items, 'drivers': drivers, 'rem': rem})));
-    msg('ব্যাকআপ কপি হয়েছে');
-  }
-
-  Future<void> restore() async {
-    final t = (await Clipboard.getData('text/plain'))?.text;
-    try {
-      final j = jsonDecode(t ?? '');
-      if (j is Map) {
-        items = _l(j['entries']);
-        rem = _l(j['rem']);
-        drivers = ((j['drivers'] ?? {}) as Map).map((k, v) => MapEntry(k as String, (v as num).toDouble()));
-      }
-      save();
-      msg('রিস্টোর হয়েছে');
-    } catch (_) {
-      msg('সঠিক ব্যাকআপ নয়');
-    }
-  }
+  Widget documentTab() => const Center(child: Text('ডকুমেন্ট আপডেট / রিমাইন্ডার'));
 
   @override
   Widget build(BuildContext context) {
     final opts = [allCars, ...cars];
     if (!opts.contains(car)) car = allCars;
+
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
         title: const Text('গাড়ির হিসাব'),
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
         actions: [
           DropdownButton<String>(
             value: car,
             underline: const SizedBox(),
-            items: opts.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+            items: opts.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(color: Colors.white)))).toList(),
             onChanged: (v) => setState(() => car = v!),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (v) => v == 'b' ? backup() : restore(),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'b', child: Text('ব্যাকআপ কপি')),
-              PopupMenuItem(value: 'r', child: Text('রিস্টোর')),
-            ],
           ),
         ],
       ),
       drawer: Drawer(
         child: ListView(
+          padding: EdgeInsets.zero,
           children: [
             const DrawerHeader(
               decoration: BoxDecoration(color: Color(0xFF00695C)),
-              child: Text('মেনু', style: TextStyle(color: Colors.white, fontSize: 24)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Icon(Icons.directions_car, color: Colors.white, size: 40),
+                  SizedBox(height: 8),
+                  Text('গাড়ির হিসাব', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                  Text('নতুন হিসাব যোগ করুন', style: TextStyle(color: Colors.white70)),
+                ],
+              ),
             ),
-            ListTile(leading: const Icon(Icons.home), title: const Text('হোম'), onTap: () { setState(() => tab = 0); Navigator.pop(context); }),
-            ListTile(leading: const Icon(Icons.list), title: const Text('হিসাব'), onTap: () { setState(() => tab = 1); Navigator.pop(context); }),
-            ListTile(leading: const Icon(Icons.person), title: const Text('ড্রাইভার'), onTap: () { setState(() => tab = 2); Navigator.pop(context); }),
-            ListTile(leading: const Icon(Icons.bar_chart), title: const Text('রিপোর্ট'), onTap: () { setState(() => tab = 3); Navigator.pop(context); }),
-            const Divider(),
-            ListTile(leading: const Icon(Icons.add), title: const Text('নতুন হিসাব যোগ'), onTap: () { Navigator.pop(context); addEdit(); }),
+            ListTile(
+              leading: const Icon(Icons.route),
+              title: const Text('ট্রিপ'),
+              onTap: () {
+                Navigator.pop(context);
+                openAddPage('trip');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.directions_car),
+              title: const Text('নিজে ব্যবহার'),
+              onTap: () {
+                Navigator.pop(context);
+                openAddPage('self');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.arrow_upward),
+              title: const Text('খরচ'),
+              onTap: () {
+                Navigator.pop(context);
+                openAddPage('out');
+              },
+            ),
           ],
         ),
       ),
-      body: [dash(), listTab(), drvTab(), reportTab()][tab],
+      body: [homeTab(), driverTab(), reportTab(), documentTab()][tab],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: tab,
+        onDestinationSelected: (i) => setState(() => tab = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.home), label: 'হোম'),
+          NavigationDestination(icon: Icon(Icons.person), label: 'ড্রাইভার'),
+          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'রিপোর্ট'),
+          NavigationDestination(icon: Icon(Icons.description), label: 'ডকুমেন্ট'),
+        ],
+      ),
     );
   }
 }
 
 class AddEditPage extends StatefulWidget {
-  final M? old;
+  final String initialType;
   final List<String> cars;
   final String currentCar;
   final List<String> drivers;
-  const AddEditPage({super.key, this.old, required this.cars, required this.currentCar, required this.drivers});
+  const AddEditPage({super.key, required this.initialType, required this.cars, required this.currentCar, required this.drivers});
   @override
   State<AddEditPage> createState() => _AddEditPageState();
 }
@@ -407,16 +378,15 @@ class _AddEditPageState extends State<AddEditPage> {
   @override
   void initState() {
     super.initState();
-    final old = widget.old;
-    t = (old?['type'] ?? 'out') as String;
-    carC = TextEditingController(text: old?['car'] ?? (widget.cars.isNotEmpty ? widget.cars.first : 'আমার গাড়ি'));
-    amtC = TextEditingController(text: old == null ? '' : fm(n0(old['amt'])));
-    costC = TextEditingController(text: old == null ? '' : fm(n0(old['cost'])));
-    noteC = TextEditingController(text: old?['note'] ?? '');
-    driverPayC = TextEditingController(text: old == null ? '' : fm(n0(old['driver_pay'])));
-    cat = old?['cat'] ?? outCats.first;
-    drv = old?['driver'] ?? noDrv;
-    d = old == null ? DateTime.now() : DateTime.parse(old['date']);
+    t = widget.initialType;
+    carC = TextEditingController(text: widget.currentCar != allCars ? widget.currentCar : (widget.cars.isNotEmpty ? widget.cars.first : 'আমার গাড়ি'));
+    amtC = TextEditingController();
+    costC = TextEditingController();
+    noteC = TextEditingController();
+    driverPayC = TextEditingController();
+    cat = outCats.first;
+    drv = noDrv;
+    d = DateTime.now();
   }
 
   @override
@@ -432,32 +402,22 @@ class _AddEditPageState extends State<AddEditPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.old == null ? 'নতুন হিসাব যোগ করুন' : 'হিসাব এডিট')),
+      appBar: AppBar(title: Text(t == 'trip' ? 'নতুন ট্রিপ' : t == 'self' ? 'নিজে ব্যবহার' : 'নতুন খরচ')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(children: [
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'trip', label: Text('ট্রিপ'), icon: Icon(Icons.route)),
-              ButtonSegment(value: 'self', label: Text('নিজে ব্যবহার'), icon: Icon(Icons.directions_car)),
-              ButtonSegment(value: 'out', label: Text('খরচ'), icon: Icon(Icons.arrow_upward)),
-            ],
-            selected: {t},
-            onSelectionChanged: (v) => setState(() => t = v.first),
-          ),
-          const SizedBox(height: 20),
           TextField(controller: carC, decoration: const InputDecoration(labelText: 'গাড়ির নাম/নম্বর', border: OutlineInputBorder(), prefixIcon: Icon(Icons.directions_car))),
           const SizedBox(height: 12),
           TextField(
             controller: amtC,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(labelText: t == 'trip' ? 'ট্রিপের ভাড়া (৳)' : 'পরিমাণ (৳)', border: const OutlineInputBorder(), prefixIcon: const Icon(Icons.attach_money)),
+            decoration: InputDecoration(labelText: t == 'trip' ? 'ট্রিপের ভাড়া (৳)' : 'পরিমাণ (৳)', border: const OutlineInputBorder()),
           ),
           if (t == 'trip' || t == 'self') ...[
             const SizedBox(height: 12),
-            TextField(controller: costC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'খরচ (তেল/টোল) (৳)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.receipt))),
+            TextField(controller: costC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'খরচ (তেল/টোল) (৳)', border: OutlineInputBorder())),
             const SizedBox(height: 12),
-            TextField(controller: driverPayC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'ড্রাইভারকে দিয়েছি (৳)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person))),
+            TextField(controller: driverPayC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'ড্রাইভারকে দিয়েছি (৳)', border: OutlineInputBorder())),
           ],
           if (t == 'out') ...[
             const SizedBox(height: 12),
@@ -471,12 +431,12 @@ class _AddEditPageState extends State<AddEditPage> {
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             value: drv,
-            decoration: const InputDecoration(labelText: 'ড্রাইভার', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person)),
+            decoration: const InputDecoration(labelText: 'ড্রাইভার', border: OutlineInputBorder()),
             items: <String>{noDrv, ...widget.drivers, drv}.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
             onChanged: (v) => setState(() => drv = v!),
           ),
           const SizedBox(height: 12),
-          TextField(controller: noteC, decoration: const InputDecoration(labelText: 'নোট (ঐচ্ছিক)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.note))),
+          TextField(controller: noteC, decoration: const InputDecoration(labelText: 'নোট (ঐচ্ছিক)', border: OutlineInputBorder())),
           const SizedBox(height: 12),
           ListTile(
             title: Text('তারিখ: ${fd(d)}'),
@@ -498,7 +458,7 @@ class _AddEditPageState extends State<AddEditPage> {
                   return;
                 }
                 Navigator.pop(context, {
-                  'id': widget.old?['id'] ?? DateTime.now().millisecondsSinceEpoch,
+                  'id': DateTime.now().millisecondsSinceEpoch,
                   'car': carC.text.trim().isEmpty ? 'আমার গাড়ি' : carC.text.trim(),
                   'type': t,
                   'cat': t == 'out' ? cat : (t == 'trip' ? 'ট্রিপ' : 'নিজে ব্যবহার'),
