@@ -69,14 +69,15 @@ class _HomeState extends State<Home> {
     checkUpdate();
   }
 
-  Future<void> checkUpdate() async {
+   Future<void> checkUpdate() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      final res = await http.get(Uri.parse(
-          ''https://raw.githubusercontent.com/mdenamulhoquebijoy1-debug/gari-hisab/main/version.json''));
+      final url = 'https://raw.githubusercontent.com/mdenamulhoquebijoy1-debug/gari-hisab/main/version.json';
+      final res = await http.get(Uri.parse(url));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        if (_isNewer(data['version'] as String, info.version)) {
+        final latest = data['version'] as String;
+        if (_isNewer(latest, info.version)) {
           if (!mounted) return;
           showDialog(
             context: context,
