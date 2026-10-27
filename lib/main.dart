@@ -42,8 +42,10 @@ String fm(num n) => n % 1 == 0 ? n.toInt().toString() : n.toStringAsFixed(2);
 String fd(DateTime d) => '${d.day}/${d.month}/${d.year}';
 String mk(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 double n0(dynamic v) => (v as num?)?.toDouble() ?? 0;
+
+// নিজে ব্যবহার হোমের লাভ/লোকসানে যোগ হবে না
 double inc(M e) => e['type'] == 'out' || e['type'] == 'self' ? 0 : n0(e['amt']);
-double ex(M e) => e['type'] == 'out' ? n0(e['amt']) : (e['type'] == 'trip' || e['type'] == 'self') ? n0(e['cost']) : 0;
+double ex(M e) => e['type'] == 'out' ? n0(e['amt']) : (e['type'] == 'trip' ? n0(e['cost']) : 0);
 double sIn(Iterable<M> l) => l.fold<double>(0, (s, e) => s + inc(e));
 double sEx(Iterable<M> l) => l.fold<double>(0, (s, e) => s + ex(e));
 
@@ -122,9 +124,7 @@ class _HomeState extends State<Home> {
       final res = await http.get(Uri.parse(url));
       await file.writeAsBytes(res.bodyBytes);
       await OpenFile.open(file.path);
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ডাউনলোড ব্যর্থ')));
-    }
+    } catch (_) {}
   }
 
   List<M> _l(dynamic s) => s == null ? [] : (s as List).map((e) => Map<String, dynamic>.from(e)).toList();
@@ -188,7 +188,7 @@ class _HomeState extends State<Home> {
         title: Text(old == null ? 'নতুন ড্রাইভার' : 'এডিট'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(controller: n, decoration: const InputDecoration(labelText: 'নাম')),
-          TextField(controller: s, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'মাসিক বেতন')),
+          TextField(controller: s, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'মাসিক বেতন (৳)')),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('বাতিল')),
@@ -206,6 +206,36 @@ class _HomeState extends State<Home> {
         ],
       ),
     );
+  }
+
+  Future<void> addRem() async {
+    final t = TextEditingController();
+    DateTime d = DateTime.now().add(const Duration(days: 30));
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, set) => AlertDialog(
+            title: const Text('রিমাইন্ডার যোগ'),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: t, decoration: const InputDecoration(labelText: 'কীসের রিমাইন্ডার?')),
+              ListTile(
+                title: Text('তারিখ: ${fd(d)}'),
+                trailing: const Icon(Icons.calendar_today),
+                onTap: () async {
+                  final x = await showDatePicker(context: ctx, initialDate: d, firstDate: DateTime.now(), lastDate: DateTime(2100));
+                  if (x != null) set(() => d = x);
+                },
+              ),
+            ]),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('বাতিল')),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('যোগ')),
+            ],
+          )),
+    );
+    if (ok == true && t.text.trim().isNotEmpty) {
+      rem.add({'id': DateTime.now().millisecondsSinceEpoch, 'title': t.text.trim(), 'date': d.toIso8601String()});
+      save();
+    }
   }
 
   String _monthName(int m) => ['', 'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'][m];
@@ -247,7 +277,8 @@ class _HomeState extends State<Home> {
       ]),
       const SizedBox(height: 20),
       const Text('সাম্প্রতিক হিসাব', style: TextStyle(fontWeight: FontWeight.bold)),
-      ...shown.take(5).map((e) => ListTile(
+      ...shown.take(8).map((e) => ListTile(
+            leading: Icon(e['type'] == 'trip' ? Icons.route : e['type'] == 'self' ? Icons.directions_car : Icons.arrow_upward),
             title: Text(e['type'] == 'trip' ? 'ট্রিপ' : e['type'] == 'self' ? 'নিজে ব্যবহার' : e['cat']),
             subtitle: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
             trailing: Text('৳${fm(n0(e['amt']))}'),
@@ -256,27 +287,117 @@ class _HomeState extends State<Home> {
     ]);
   }
 
-  Widget driverTab() => ListView(children: [
-        monthNav(),
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: FilledButton.icon(onPressed: () => editDriver(), icon: const Icon(Icons.person_add), label: const Text('ড্রাইভার যোগ')),
-        ),
-        if (drivers.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('ড্রাইভার যোগ করুন')),
-        for (final n in drivers.keys)
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: ListTile(
-              title: Text(n, style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text('মাসিক বেতন: ৳${fm(drivers[n] ?? 0)}'),
-              trailing: IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
+  Widget driverTab() {
+    final m = shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
+    return ListView(children: [
+      monthNav(),
+      Padding(
+        padding: const EdgeInsets.all(12),
+        child: FilledButton.icon(onPressed: () => editDriver(), icon: const Icon(Icons.person_add), label: const Text('ড্রাইভার যোগ')),
+      ),
+      if (drivers.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('ড্রাইভার যোগ করুন')),
+      for (final n in drivers.keys)
+        Builder(builder: (c) {
+          final mine = m.where((e) => e['driver'] == n).toList();
+          final sal = drivers[n] ?? 0;
+          final paid = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার বেতন'));
+          final adv = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার অগ্রিম'));
+          final tripPay = mine.fold<double>(0, (s, e) => s + n0(e['driver_pay']));
+          final bal = sal - paid - adv - tripPay;
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(child: Text(n, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+                  IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
+                ]),
+                Text('মাসিক বেতন: ৳${fm(sal)}'),
+                Text('বেতন দিয়েছি: ৳${fm(paid)}'),
+                Text('অগ্রিম: ৳${fm(adv)}'),
+                Text('ট্রিপ থেকে দিয়েছি: ৳${fm(tripPay)}'),
+                const SizedBox(height: 4),
+                Text(bal >= 0 ? 'বাকি পাবে: ৳${fm(bal)}' : 'বেশি দেওয়া হয়েছে: ৳${fm(-bal)}',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: bal > 0 ? Colors.orange : Colors.teal)),
+              ]),
             ),
-          ),
-      ]);
+          );
+        }),
+      const SizedBox(height: 80),
+    ]);
+  }
 
-  Widget reportTab() => const Center(child: Text('রিপোর্ট'));
+  Widget reportTab() {
+    final m = shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
+    final i = sIn(m), o = sEx(m), pr = i - o;
+    final selfUses = m.where((e) => e['type'] == 'self').toList();
+    final selfCost = selfUses.fold<double>(0, (s, e) => s + n0(e['cost']));
+    return ListView(padding: const EdgeInsets.all(12), children: [
+      monthNav(),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(children: [
+            Text('এই মাসের হিসাব', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+              Text('আয়\n৳${fm(i)}', textAlign: TextAlign.center),
+              Text('খরচ\n৳${fm(o)}', textAlign: TextAlign.center),
+              Text('${pr >= 0 ? "লাভ" : "লোকসান"}\n৳${fm(pr.abs())}', textAlign: TextAlign.center),
+            ]),
+          ]),
+        ),
+      ),
+      const SizedBox(height: 16),
+      const Text('নিজে ব্যবহার', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+      if (selfUses.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('এই মাসে কোনো নিজে ব্যবহার নেই')),
+      for (final e in selfUses)
+        ListTile(
+          leading: const Icon(Icons.directions_car, color: Colors.orange),
+          title: Text(e['car'] ?? ''),
+          subtitle: Text(fd(DateTime.parse(e['date']))),
+          trailing: Text('খরচ ৳${fm(n0(e['cost']))}'),
+        ),
+      if (selfUses.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Text('মোট নিজে ব্যবহার খরচ: ৳${fm(selfCost)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      const SizedBox(height: 80),
+    ]);
+  }
 
-  Widget documentTab() => const Center(child: Text('ডকুমেন্ট আপডেট / রিমাইন্ডার'));
+  Widget documentTab() {
+    final today = DateTime.now();
+    final rs = [...rem]..sort((a, b) => (a['date'] as String).compareTo(b['date'] as String));
+    return ListView(children: [
+      Padding(
+        padding: const EdgeInsets.all(12),
+        child: FilledButton.icon(onPressed: addRem, icon: const Icon(Icons.add), label: const Text('রিমাইন্ডার যোগ করুন')),
+      ),
+      if (rs.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('কোনো ডকুমেন্ট রিমাইন্ডার নেই')),
+      for (final r in rs)
+        Builder(builder: (c) {
+          final days = DateTime.parse(r['date']).difference(today).inDays;
+          return ListTile(
+            leading: Icon(Icons.notifications, color: days < 0 ? Colors.red : Colors.teal),
+            title: Text(r['title']),
+            subtitle: Text(days < 0 ? 'মেয়াদ শেষ ${-days} দিন আগে' : '$days দিন বাকি'),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () async {
+                if (await ask('মুছবেন?')) {
+                  rem.removeWhere((x) => x['id'] == r['id']);
+                  save();
+                }
+              },
+            ),
+          );
+        }),
+      const SizedBox(height: 80),
+    ]);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -317,30 +438,9 @@ class _HomeState extends State<Home> {
                 ],
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.route),
-              title: const Text('ট্রিপ'),
-              onTap: () {
-                Navigator.pop(context);
-                openAddPage('trip');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.directions_car),
-              title: const Text('নিজে ব্যবহার'),
-              onTap: () {
-                Navigator.pop(context);
-                openAddPage('self');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.arrow_upward),
-              title: const Text('খরচ'),
-              onTap: () {
-                Navigator.pop(context);
-                openAddPage('out');
-              },
-            ),
+            ListTile(leading: const Icon(Icons.route), title: const Text('ট্রিপ'), onTap: () { Navigator.pop(context); openAddPage('trip'); }),
+            ListTile(leading: const Icon(Icons.directions_car), title: const Text('নিজে ব্যবহার'), onTap: () { Navigator.pop(context); openAddPage('self'); }),
+            ListTile(leading: const Icon(Icons.arrow_upward), title: const Text('খরচ'), onTap: () { Navigator.pop(context); openAddPage('out'); }),
           ],
         ),
       ),
@@ -391,11 +491,7 @@ class _AddEditPageState extends State<AddEditPage> {
 
   @override
   void dispose() {
-    carC.dispose();
-    amtC.dispose();
-    costC.dispose();
-    noteC.dispose();
-    driverPayC.dispose();
+    carC.dispose(); amtC.dispose(); costC.dispose(); noteC.dispose(); driverPayC.dispose();
     super.dispose();
   }
 
@@ -408,11 +504,7 @@ class _AddEditPageState extends State<AddEditPage> {
         child: Column(children: [
           TextField(controller: carC, decoration: const InputDecoration(labelText: 'গাড়ির নাম/নম্বর', border: OutlineInputBorder(), prefixIcon: Icon(Icons.directions_car))),
           const SizedBox(height: 12),
-          TextField(
-            controller: amtC,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(labelText: t == 'trip' ? 'ট্রিপের ভাড়া (৳)' : 'পরিমাণ (৳)', border: const OutlineInputBorder()),
-          ),
+          TextField(controller: amtC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: t == 'trip' ? 'ট্রিপের ভাড়া (৳)' : 'পরিমাণ (৳)', border: const OutlineInputBorder())),
           if (t == 'trip' || t == 'self') ...[
             const SizedBox(height: 12),
             TextField(controller: costC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'খরচ (তেল/টোল) (৳)', border: OutlineInputBorder())),
@@ -421,31 +513,17 @@ class _AddEditPageState extends State<AddEditPage> {
           ],
           if (t == 'out') ...[
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: cat,
-              decoration: const InputDecoration(labelText: 'খরচের ধরন', border: OutlineInputBorder()),
-              items: outCats.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-              onChanged: (v) => setState(() => cat = v!),
-            ),
+            DropdownButtonFormField<String>(value: cat, decoration: const InputDecoration(labelText: 'খরচের ধরন', border: OutlineInputBorder()), items: outCats.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(), onChanged: (v) => setState(() => cat = v!)),
           ],
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: drv,
-            decoration: const InputDecoration(labelText: 'ড্রাইভার', border: OutlineInputBorder()),
-            items: <String>{noDrv, ...widget.drivers, drv}.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-            onChanged: (v) => setState(() => drv = v!),
-          ),
+          DropdownButtonFormField<String>(value: drv, decoration: const InputDecoration(labelText: 'ড্রাইভার', border: OutlineInputBorder()), items: <String>{noDrv, ...widget.drivers, drv}.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(), onChanged: (v) => setState(() => drv = v!)),
           const SizedBox(height: 12),
           TextField(controller: noteC, decoration: const InputDecoration(labelText: 'নোট (ঐচ্ছিক)', border: OutlineInputBorder())),
           const SizedBox(height: 12),
-          ListTile(
-            title: Text('তারিখ: ${fd(d)}'),
-            trailing: const Icon(Icons.calendar_today),
-            onTap: () async {
-              final x = await showDatePicker(context: context, initialDate: d, firstDate: DateTime(2020), lastDate: DateTime(2100));
-              if (x != null) setState(() => d = x);
-            },
-          ),
+          ListTile(title: Text('তারিখ: ${fd(d)}'), trailing: const Icon(Icons.calendar_today), onTap: () async {
+            final x = await showDatePicker(context: context, initialDate: d, firstDate: DateTime(2020), lastDate: DateTime(2100));
+            if (x != null) setState(() => d = x);
+          }),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
