@@ -390,6 +390,17 @@ class _HomeState extends State<Home> {
         ),
       );
 
+  String _monthName(int m) => ['', 'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'][m];
+
+  Widget monthNav() => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left)),
+          Text('${_monthName(month.month)} ${month.year}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right)),
+        ]),
+      );
+
   Widget homeTab() {
     final yearList = shown.where((e) => DateTime.parse(e['date']).year == DateTime.now().year).toList();
     final i = sIn(yearList), o = sEx(yearList), pr = i - o;
@@ -435,7 +446,68 @@ class _HomeState extends State<Home> {
           ),
       ]);
 
-  Widget reportTab() => Center(child: Text(t('রিপোর্ট', 'Report')));
+  Widget reportTab() {
+    final m = shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
+    final i = sIn(m), o = sEx(m), pr = i - o;
+    final trips = m.where((e) => e['type'] == 'trip').toList();
+    final selfUses = m.where((e) => e['type'] == 'self').toList();
+    final expenses = m.where((e) => e['type'] == 'out').toList();
+    final selfCost = selfUses.fold<double>(0, (s, e) => s + n0(e['cost']));
+    final tripProfitTotal = trips.fold<double>(0, (s, e) => s + tripProfit(e));
+
+    return ListView(padding: const EdgeInsets.all(12), children: [
+      monthNav(),
+      Card(
+        color: Colors.teal.shade50,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(children: [
+            Text(t('এই মাসের সারাংশ', 'This Month Summary'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 12),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+              Column(children: [Text(t('আয়', 'Income')), Text('৳${fm(i)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green))]),
+              Column(children: [Text(t('খরচ', 'Expense')), Text('৳${fm(o)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red))]),
+              Column(children: [Text(pr >= 0 ? t('লাভ', 'Profit') : t('লোকসান', 'Loss')), Text('৳${fm(pr.abs())}', style: TextStyle(fontWeight: FontWeight.bold, color: pr >= 0 ? Colors.teal : Colors.orange))]),
+            ]),
+          ]),
+        ),
+      ),
+      const SizedBox(height: 16),
+      Text(t('ট্রিপ রিপোর্ট', 'Trip Report'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+      if (trips.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('কোনো ট্রিপ নেই')),
+      for (final e in trips)
+        ListTile(
+          leading: const Icon(Icons.route, color: Colors.indigo),
+          title: Text(e['car'] ?? ''),
+          subtitle: Text(fd(DateTime.parse(e['date']))),
+          trailing: Text('লাভ ৳${fm(tripProfit(e))}'),
+        ),
+      if (trips.isNotEmpty)
+        Padding(padding: const EdgeInsets.all(8), child: Text('মোট ট্রিপ লাভ: ৳${fm(tripProfitTotal)}', style: const TextStyle(fontWeight: FontWeight.bold))),
+      const SizedBox(height: 16),
+      Text(t('নিজে ব্যবহার', 'Personal Use'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+      if (selfUses.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('এই মাসে কোনো নিজে ব্যবহার নেই')),
+      for (final e in selfUses)
+        ListTile(
+          leading: const Icon(Icons.directions_car, color: Colors.orange),
+          title: Text(e['car'] ?? ''),
+          subtitle: Text('${fd(DateTime.parse(e['date']))} • খরচ ৳${fm(n0(e['cost']))}'),
+          trailing: Text(n0(e['commission']) > 0 ? 'কমিশন ৳${fm(n0(e['commission']))}' : ''),
+        ),
+      if (selfUses.isNotEmpty)
+        Padding(padding: const EdgeInsets.all(8), child: Text('মোট নিজে ব্যবহার খরচ: ৳${fm(selfCost)}', style: const TextStyle(fontWeight: FontWeight.bold))),
+      const SizedBox(height: 16),
+      Text(t('খরচের তালিকা', 'Expense List'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+      for (final e in expenses)
+        ListTile(
+          leading: const Icon(Icons.arrow_upward, color: Colors.red),
+          title: Text(e['cat'] ?? ''),
+          subtitle: Text(fd(DateTime.parse(e['date']))),
+          trailing: Text('৳${fm(n0(e['amt']))}'),
+        ),
+      const SizedBox(height: 80),
+    ]);
+  }
 
   Widget documentTab() {
     final rs = [...rem]..sort((a, b) => (a['date'] as String).compareTo(b['date'] as String));
