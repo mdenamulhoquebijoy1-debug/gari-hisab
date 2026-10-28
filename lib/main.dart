@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:file_picker/file_picker.dart';
 
 void main() => runApp(const App());
 
@@ -246,14 +247,14 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> addRem() async {
-    final t = TextEditingController();
+    final tCtrl = TextEditingController();
     DateTime d = DateTime.now().add(const Duration(days: 30));
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, set) => AlertDialog(
             title: const Text('রিমাইন্ডার যোগ'),
             content: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(controller: t, decoration: const InputDecoration(labelText: 'কীসের রিমাইন্ডার?')),
+              TextField(controller: tCtrl, decoration: const InputDecoration(labelText: 'কীসের রিমাইন্ডার?')),
               ListTile(
                 title: Text('তারিখ: ${fd(d)}'),
                 trailing: const Icon(Icons.calendar_today),
@@ -269,9 +270,39 @@ class _HomeState extends State<Home> {
             ],
           )),
     );
-    if (ok == true && t.text.trim().isNotEmpty) {
-      rem.add({'id': DateTime.now().millisecondsSinceEpoch, 'title': t.text.trim(), 'date': d.toIso8601String()});
+    if (ok == true && tCtrl.text.trim().isNotEmpty) {
+      rem.add({'id': DateTime.now().millisecondsSinceEpoch, 'title': tCtrl.text.trim(), 'date': d.toIso8601String()});
       save();
+    }
+  }
+
+  Future<void> backup() async {
+    try {
+      final data = jsonEncode({'entries': items, 'drivers': drivers, 'rem': rem});
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/gari_hisab_backup_${DateTime.now().millisecondsSinceEpoch}.json');
+      await file.writeAsString(data);
+      msg('ব্যাকআপ সেভ হয়েছে');
+    } catch (_) {
+      msg('ব্যাকআপ ব্যর্থ');
+    }
+  }
+
+  Future<void> restore() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
+    if (result == null || result.files.single.path == null) return;
+    try {
+      final content = await File(result.files.single.path!).readAsString();
+      final j = jsonDecode(content);
+      if (j is Map) {
+        items = _l(j['entries']);
+        rem = _l(j['rem']);
+        drivers = ((j['drivers'] ?? {}) as Map).map((k, v) => MapEntry(k as String, (v as num).toDouble()));
+        save();
+        msg('রিস্টোর সফল');
+      }
+    } catch (_) {
+      msg('রিস্টোর ব্যর্থ');
     }
   }
 
@@ -407,7 +438,6 @@ class _HomeState extends State<Home> {
   Widget reportTab() => Center(child: Text(t('রিপোর্ট', 'Report')));
 
   Widget documentTab() {
-    final today = DateTime.now();
     final rs = [...rem]..sort((a, b) => (a['date'] as String).compareTo(b['date'] as String));
     return ListView(children: [
       Padding(padding: const EdgeInsets.all(12), child: FilledButton.icon(onPressed: addRem, icon: const Icon(Icons.add), label: Text(t('রিমাইন্ডার যোগ করুন', 'Add Reminder')))),
@@ -436,7 +466,11 @@ class _HomeState extends State<Home> {
       appBar: AppBar(
         title: Text(t('গাড়ির হিসাব', 'Car Account')),
         leading: IconButton(icon: const Icon(Icons.menu), onPressed: () => _scaffoldKey.currentState?.openDrawer()),
-        actions: [Padding(padding: const EdgeInsets.only(right: 12), child: langToggle())],
+        actions: [
+          IconButton(icon: const Icon(Icons.backup), onPressed: backup, tooltip: 'ব্যাকআপ'),
+          IconButton(icon: const Icon(Icons.restore), onPressed: restore, tooltip: 'রিস্টোর'),
+          Padding(padding: const EdgeInsets.only(right: 8), child: langToggle()),
+        ],
       ),
       drawer: Drawer(
         child: ListView(padding: EdgeInsets.zero, children: [
@@ -451,15 +485,28 @@ class _HomeState extends State<Home> {
         ]),
       ),
       body: [homeTab(), driverTab(), reportTab(), documentTab()][tab],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (i) => setState(() => tab = i),
-        destinations: [
-          NavigationDestination(icon: const Icon(Icons.home), label: t('হোম', 'Home')),
-          NavigationDestination(icon: const Icon(Icons.person), label: t('ড্রাইভার', 'Driver')),
-          NavigationDestination(icon: const Icon(Icons.bar_chart), label: t('রিপোর্ট', 'Report')),
-          NavigationDestination(icon: const Icon(Icons.description), label: t('ডকুমেন্ট', 'Document')),
-        ],
+      bottomNavigationBar: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 12, offset: const Offset(0, 4))],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(30),
+          child: NavigationBar(
+            selectedIndex: tab,
+            onDestinationSelected: (i) => setState(() => tab = i),
+            indicatorColor: Colors.blue.shade100,
+            backgroundColor: Colors.white,
+            destinations: [
+              NavigationDestination(icon: const Icon(Icons.home), label: t('হোম', 'Home')),
+              NavigationDestination(icon: const Icon(Icons.person), label: t('ড্রাইভার', 'Driver')),
+              NavigationDestination(icon: const Icon(Icons.bar_chart), label: t('রিপোর্ট', 'Report')),
+              NavigationDestination(icon: const Icon(Icons.description), label: t('ডকুমেন্ট', 'Document')),
+            ],
+          ),
+        ),
       ),
     );
   }
