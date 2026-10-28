@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 void main() => runApp(const App());
 
@@ -43,7 +44,6 @@ String fd(DateTime d) => '${d.day}/${d.month}/${d.year}';
 String mk(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 double n0(dynamic v) => (v as num?)?.toDouble() ?? 0;
 
-// লাভ = ভাড়া - খরচ - কমিশন (ট্রিপের ক্ষেত্রে)
 double tripProfit(M e) => e['type'] == 'trip' ? (n0(e['amt']) - n0(e['cost']) - n0(e['commission'])) : 0;
 double inc(M e) => e['type'] == 'out' || e['type'] == 'self' ? 0 : n0(e['amt']);
 double ex(M e) => e['type'] == 'out' ? n0(e['amt']) : (e['type'] == 'trip' ? (n0(e['cost']) + n0(e['commission'])) : 0);
@@ -63,6 +63,7 @@ class _HomeState extends State<Home> {
   String car = allCars;
   int tab = 0;
   DateTime month = DateTime.now();
+  String viewMode = 'month'; // month, year, all
   SharedPreferences? p;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -169,12 +170,19 @@ class _HomeState extends State<Home> {
     return l;
   }
 
-  Future<void> openAddPage(String type) async {
+  List<M> get filtered {
+    if (viewMode == 'all') return shown;
+    if (viewMode == 'year') return shown.where((e) => DateTime.parse(e['date']).year == month.year).toList();
+    return shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
+  }
+
+  Future<void> openAddPage(String type, [M? old]) async {
     final result = await Navigator.push<M>(
       context,
-      MaterialPageRoute(builder: (_) => AddEditPage(initialType: type, cars: cars, currentCar: car, drivers: drivers.keys.toList())),
+      MaterialPageRoute(builder: (_) => AddEditPage(initialType: type, old: old, cars: cars, currentCar: car, drivers: drivers.keys.toList())),
     );
     if (result != null) {
+      if (old != null) items.removeWhere((x) => x['id'] == old['id']);
       items.add(result);
       save();
     }
@@ -275,7 +283,7 @@ class _HomeState extends State<Home> {
   String _monthName(int m) => ['', 'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'][m];
 
   Widget monthNav() => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left)),
           Text('${_monthName(month.month)} ${month.year}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -300,11 +308,50 @@ class _HomeState extends State<Home> {
         ),
       );
 
+  Widget graph() {
+    final f = filtered;
+    final i = sIn(f), o = sEx(f), pr = i - o;
+    return SizedBox(
+      height: 180,
+      child: BarChart(
+        BarChartData(
+          alignment: BarChartAlignment.spaceAround,
+          maxY: [i, o, pr.abs()].reduce((a, b) => a > b ? a : b) * 1.2 + 1,
+          barGroups: [
+            BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: i, color: Colors.green, width: 20)]),
+            BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: o, color: Colors.red, width: 20)]),
+            BarChartGroupData(x: 2, barRods: [BarChartRodData(toY: pr.abs(), color: pr >= 0 ? Colors.teal : Colors.orange, width: 20)]),
+          ],
+          titlesData: FlTitlesData(
+            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, _) => Text(['আয়', 'খরচ', 'লাভ'][v.toInt()]))),
+            leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          gridData: const FlGridData(show: false),
+          borderData: FlBorderData(show: false),
+        ),
+      ),
+    );
+  }
+
+  bool canEdit(M e) => DateTime.now().difference(DateTime.parse(e['date'])).inDays <= 2;
+
   Widget homeTab() {
-    final m = shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
-    final i = sIn(m), o = sEx(m), pr = i - o;
+    final f = filtered;
+    final i = sIn(f), o = sEx(f), pr = i - o;
     return ListView(padding: const EdgeInsets.all(12), children: [
-      monthNav(),
+      SegmentedButton<String>(
+        segments: const [
+          ButtonSegment(value: 'month', label: Text('মাস')),
+          ButtonSegment(value: 'year', label: Text('বছর')),
+          ButtonSegment(value: 'all', label: Text('সব')),
+        ],
+        selected: {viewMode},
+        onSelectionChanged: (v) => setState(() => viewMode = v.first),
+      ),
+      const SizedBox(height: 8),
+      if (viewMode != 'all') monthNav(),
       Row(children: [
         sumCard('আয়', i, Colors.green, Icons.account_balance_wallet),
         const SizedBox(width: 8),
@@ -312,26 +359,41 @@ class _HomeState extends State<Home> {
         const SizedBox(width: 8),
         sumCard(pr >= 0 ? 'লাভ' : 'লোকসান', pr.abs(), pr >= 0 ? Colors.teal : Colors.deepOrange, Icons.trending_up),
       ]),
-      const SizedBox(height: 20),
+      const SizedBox(height: 16),
+      graph(),
+      const SizedBox(height: 16),
       Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: Colors.teal.shade50, borderRadius: BorderRadius.circular(12)),
-        child: const Text('সাম্প্রতিক হিসাব', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        child: const Text('সাম্প্রতিক হিসাব (২ দিন পর্যন্ত এডিট/ডিলিট)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
       ),
       const SizedBox(height: 8),
-      ...shown.take(8).map((e) => Card(
-            margin: const EdgeInsets.only(bottom: 6),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: e['type'] == 'trip' ? Colors.indigo.shade100 : e['type'] == 'self' ? Colors.orange.shade100 : Colors.red.shade100,
-                child: Icon(e['type'] == 'trip' ? Icons.route : e['type'] == 'self' ? Icons.directions_car : Icons.arrow_upward,
-                    color: e['type'] == 'trip' ? Colors.indigo : e['type'] == 'self' ? Colors.orange : Colors.red),
-              ),
-              title: Text(e['type'] == 'trip' ? 'ট্রিপ • লাভ ৳${fm(tripProfit(e))}' : e['type'] == 'self' ? 'নিজে ব্যবহার' : e['cat']),
-              subtitle: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
-              trailing: Text('৳${fm(n0(e['amt']))}', style: const TextStyle(fontWeight: FontWeight.bold)),
+      ...shown.take(10).map((e) {
+        final editable = canEdit(e);
+        return Card(
+          margin: const EdgeInsets.only(bottom: 6),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: e['type'] == 'trip' ? Colors.indigo.shade100 : e['type'] == 'self' ? Colors.orange.shade100 : Colors.red.shade100,
+              child: Icon(e['type'] == 'trip' ? Icons.route : e['type'] == 'self' ? Icons.directions_car : Icons.arrow_upward,
+                  color: e['type'] == 'trip' ? Colors.indigo : e['type'] == 'self' ? Colors.orange : Colors.red),
             ),
-          )),
+            title: Text(e['type'] == 'trip' ? 'ট্রিপ • লাভ ৳${fm(tripProfit(e))}' : e['type'] == 'self' ? 'নিজে ব্যবহার' : e['cat']),
+            subtitle: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
+            trailing: editable
+                ? Row(mainAxisSize: MainAxisSize.min, children: [
+                    IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: () => openAddPage(e['type'], e)),
+                    IconButton(icon: const Icon(Icons.delete_outline, size: 20), onPressed: () async {
+                      if (await ask('মুছে ফেলবেন?')) {
+                        items.removeWhere((x) => x['id'] == e['id']);
+                        save();
+                      }
+                    }),
+                  ])
+                : Text('৳${fm(n0(e['amt']))}', style: const TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        );
+      }),
       const SizedBox(height: 80),
     ]);
   }
@@ -517,10 +579,11 @@ class _HomeState extends State<Home> {
 
 class AddEditPage extends StatefulWidget {
   final String initialType;
+  final M? old;
   final List<String> cars;
   final String currentCar;
   final List<String> drivers;
-  const AddEditPage({super.key, required this.initialType, required this.cars, required this.currentCar, required this.drivers});
+  const AddEditPage({super.key, required this.initialType, this.old, required this.cars, required this.currentCar, required this.drivers});
   @override
   State<AddEditPage> createState() => _AddEditPageState();
 }
@@ -535,16 +598,18 @@ class _AddEditPageState extends State<AddEditPage> {
   @override
   void initState() {
     super.initState();
-    t = widget.initialType;
-    carC = TextEditingController(text: widget.currentCar != allCars ? widget.currentCar : (widget.cars.isNotEmpty ? widget.cars.first : 'আমার গাড়ি'));
-    amtC = TextEditingController();
-    costC = TextEditingController();
-    noteC = TextEditingController();
-    commissionC = TextEditingController();
-    driverPayC = TextEditingController();
-    cat = outCats.first;
-    drv = noDrv;
-    d = DateTime.now();
+    final old = widget.old;
+    t = old?['type'] ?? widget.initialType;
+    carC = TextEditingController(text: old?['car'] ?? (widget.currentCar != allCars ? widget.currentCar : (widget.cars.isNotEmpty ? widget.cars.first : 'আমার গাড়ি')));
+    amtC = TextEditingController(text: old == null ? '' : fm(n0(old['amt'])));
+    costC = TextEditingController(text: old == null ? '' : fm(n0(old['cost'])));
+    noteC = TextEditingController(text: old?['note'] ?? '');
+    commissionC = TextEditingController(text: old == null ? '' : fm(n0(old['commission'])));
+    driverPayC = TextEditingController(text: old == null ? '' : fm(n0(old['driver_pay'])));
+    cat = old?['cat'] ?? outCats.first;
+    drv = old?['driver'] ?? noDrv;
+    d = old == null ? DateTime.now() : DateTime.parse(old['date']);
+    paidNow = old != null && n0(old['driver_pay']) > 0;
   }
 
   @override
@@ -556,7 +621,7 @@ class _AddEditPageState extends State<AddEditPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(t == 'trip' ? 'নতুন ট্রিপ' : t == 'self' ? 'নিজে ব্যবহার' : 'নতুন খরচ')),
+      appBar: AppBar(title: Text(widget.old == null ? (t == 'trip' ? 'নতুন ট্রিপ' : t == 'self' ? 'নিজে ব্যবহার' : 'নতুন খরচ') : 'এডিট')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(children: [
@@ -578,7 +643,7 @@ class _AddEditPageState extends State<AddEditPage> {
             ),
             if (paidNow) ...[
               const SizedBox(height: 8),
-              TextField(controller: driverPayC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'কত দিয়েছি (৳)', border: OutlineInputBorder(), helperText: 'খালি রাখলে পুরো কমিশন দেওয়া ধরা হবে')),
+              TextField(controller: driverPayC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'কত দিয়েছি (৳)', border: OutlineInputBorder())),
             ],
           ],
           if (t == 'out') ...[
@@ -611,7 +676,7 @@ class _AddEditPageState extends State<AddEditPage> {
                   paid = double.tryParse(driverPayC.text.trim()) ?? commission;
                 }
                 Navigator.pop(context, {
-                  'id': DateTime.now().millisecondsSinceEpoch,
+                  'id': widget.old?['id'] ?? DateTime.now().millisecondsSinceEpoch,
                   'car': carC.text.trim().isEmpty ? 'আমার গাড়ি' : carC.text.trim(),
                   'type': t,
                   'cat': t == 'out' ? cat : (t == 'trip' ? 'ট্রিপ' : 'নিজে ব্যবহার'),
