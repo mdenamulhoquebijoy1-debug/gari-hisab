@@ -9,7 +9,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:file_picker/file_picker.dart';
 
 void main() => runApp(const App());
 
@@ -277,23 +276,19 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> backup() async {
-    try {
-      final data = jsonEncode({'entries': items, 'drivers': drivers, 'rem': rem});
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/gari_hisab_backup_${DateTime.now().millisecondsSinceEpoch}.json');
-      await file.writeAsString(data);
-      msg('ব্যাকআপ সেভ হয়েছে');
-    } catch (_) {
-      msg('ব্যাকআপ ব্যর্থ');
-    }
+    final data = jsonEncode({'entries': items, 'drivers': drivers, 'rem': rem});
+    await Clipboard.setData(ClipboardData(text: data));
+    msg('ব্যাকআপ কপি হয়েছে। কোথাও সেভ করে রাখো।');
   }
 
   Future<void> restore() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
-    if (result == null || result.files.single.path == null) return;
+    final t = (await Clipboard.getData('text/plain'))?.text;
+    if (t == null || t.isEmpty) {
+      msg('ক্লিপবোর্ডে কিছু নেই');
+      return;
+    }
     try {
-      final content = await File(result.files.single.path!).readAsString();
-      final j = jsonDecode(content);
+      final j = jsonDecode(t);
       if (j is Map) {
         items = _l(j['entries']);
         rem = _l(j['rem']);
@@ -302,7 +297,7 @@ class _HomeState extends State<Home> {
         msg('রিস্টোর সফল');
       }
     } catch (_) {
-      msg('রিস্টোর ব্যর্থ');
+      msg('সঠিক ব্যাকআপ নয়');
     }
   }
 
