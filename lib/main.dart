@@ -237,8 +237,8 @@ class _HomeState extends State<Home> {
         const Text('ট্রিপসমূহ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         ...trips.map((e) => ListTile(
               leading: Icon(e['type'] == 'trip' ? Icons.route : Icons.directions_car),
-              title: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
-              subtitle: Text('কমিশন ৳${fm(n0(e['commission']))}'),
+              title: Text('${e['from'] ?? ''} → ${e['to'] ?? ''}'),
+              subtitle: Text('${e['car']} • ${fd(DateTime.parse(e['date']))}'),
               trailing: Text(n0(e['driver_pay']) > 0 ? 'দেওয়া হয়েছে' : 'বকেয়া', style: TextStyle(color: n0(e['driver_pay']) > 0 ? Colors.green : Colors.orange)),
             )),
       ]),
@@ -396,6 +396,8 @@ class _HomeState extends State<Home> {
         ]),
       );
 
+  bool canEdit(M e) => DateTime.now().difference(DateTime.parse(e['date'])).inDays <= 2;
+
   Widget homeTab() {
     final yearList = shown.where((e) => DateTime.parse(e['date']).year == DateTime.now().year).toList();
     final i = sIn(yearList), o = sEx(yearList), pr = i - o;
@@ -415,31 +417,74 @@ class _HomeState extends State<Home> {
       const SizedBox(height: 16),
       Text(t('সাম্প্রতিক হিসাব', 'Recent Accounts'), style: const TextStyle(fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
-      ...shown.take(5).map((e) => ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(e['type'] == 'trip' ? Icons.route : Icons.arrow_upward),
-            title: Text(e['type'] == 'trip' ? t('ট্রিপ', 'Trip') : e['cat']),
-            subtitle: Text(fd(DateTime.parse(e['date']))),
-            trailing: Text('৳${fm(n0(e['amt']))}'),
-          )),
+      ...shown.take(8).map((e) {
+        final editable = canEdit(e);
+        return ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(e['type'] == 'trip' ? Icons.route : Icons.arrow_upward),
+          title: Text(e['type'] == 'trip' ? '${e['from'] ?? ''} → ${e['to'] ?? ''}' : e['cat']),
+          subtitle: Text(fd(DateTime.parse(e['date']))),
+          trailing: editable
+              ? Row(mainAxisSize: MainAxisSize.min, children: [
+                  IconButton(icon: const Icon(Icons.edit, size: 18), onPressed: () => openAddPage(e['type'], e)),
+                  IconButton(icon: const Icon(Icons.delete_outline, size: 18), onPressed: () async {
+                    if (await ask('মুছবেন?')) {
+                      items.removeWhere((x) => x['id'] == e['id']);
+                      save();
+                    }
+                  }),
+                ])
+              : Text('৳${fm(n0(e['amt']))}'),
+        );
+      }),
       const SizedBox(height: 80),
     ]);
   }
 
-  Widget driverTab() => ListView(children: [
-        Padding(padding: const EdgeInsets.all(12), child: FilledButton.icon(onPressed: () => editDriver(), icon: const Icon(Icons.person_add), label: Text(t('ড্রাইভার যোগ', 'Add Driver')))),
-        if (drivers.isEmpty) Padding(padding: const EdgeInsets.all(24), child: Text(t('ড্রাইভার যোগ করুন', 'Add a driver'))),
-        for (final n in drivers.keys)
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: ListTile(
-              title: Text(n, style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(t('মাসিক বেতন: ৳${fm(drivers[n] ?? 0)}', 'Monthly Salary: ৳${fm(drivers[n] ?? 0)}')),
+  Widget driverTab() {
+    final m = shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
+    return ListView(children: [
+      monthNav(),
+      Padding(padding: const EdgeInsets.all(12), child: FilledButton.icon(onPressed: () => editDriver(), icon: const Icon(Icons.person_add), label: Text(t('ড্রাইভার যোগ', 'Add Driver')))),
+      if (drivers.isEmpty) Padding(padding: const EdgeInsets.all(24), child: Text(t('ড্রাইভার যোগ করুন', 'Add a driver'))),
+      for (final n in drivers.keys)
+        Builder(builder: (c) {
+          final mine = m.where((e) => e['driver'] == n).toList();
+          final allMine = items.where((e) => e['driver'] == n).toList();
+          final sal = drivers[n] ?? 0;
+          final paidSalary = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার বেতন'));
+          final adv = sEx(mine.where((e) => e['cat'] == 'ড্রাইভার অগ্রিম'));
+          final commission = mine.fold<double>(0, (s, e) => s + n0(e['commission']));
+          final paidNow = mine.fold<double>(0, (s, e) => s + n0(e['driver_pay']));
+          final monthlyIncome = commission;
+          final allTimeIncome = allMine.fold<double>(0, (s, e) => s + n0(e['commission']));
+          final bal = sal - paidSalary - adv + (commission - paidNow);
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: InkWell(
               onTap: () => showDriverDetails(n),
-              trailing: IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Expanded(child: Text(n, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+                    IconButton(icon: const Icon(Icons.edit), onPressed: () => editDriver(n)),
+                  ]),
+                  Text('মাসিক বেতন: ৳${fm(sal)}'),
+                  Text('বেতন দিয়েছি: ৳${fm(paidSalary)} (বাকি ৳${fm(sal - paidSalary)})'),
+                  Text('অগ্রিম দিয়েছি: ৳${fm(adv)}'),
+                  Text('এই মাসের আয়: ৳${fm(monthlyIncome)}'),
+                  Text('সর্বমোট আয়: ৳${fm(allTimeIncome)}'),
+                  const SizedBox(height: 4),
+                  Text(bal >= 0 ? 'মোট বকেয়া: ৳${fm(bal)}' : 'বেশি দেওয়া: ৳${fm(-bal)}',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: bal > 0 ? Colors.orange : Colors.teal)),
+                ]),
+              ),
             ),
-          ),
-      ]);
+          );
+        }),
+    ]);
+  }
 
   Widget reportTab() {
     final m = shown.where((e) => mk(DateTime.parse(e['date'])) == mk(month)).toList();
@@ -473,7 +518,7 @@ class _HomeState extends State<Home> {
       for (final e in trips)
         ListTile(
           leading: const Icon(Icons.route, color: Colors.indigo),
-          title: Text(e['car'] ?? ''),
+          title: Text('${e['from'] ?? ''} → ${e['to'] ?? ''}'),
           subtitle: Text(fd(DateTime.parse(e['date']))),
           trailing: Text('লাভ ৳${fm(tripProfit(e))}'),
         ),
@@ -592,7 +637,7 @@ class AddEditPage extends StatefulWidget {
 
 class _AddEditPageState extends State<AddEditPage> {
   late String t;
-  late TextEditingController carC, amtC, costC, noteC, commissionC, driverPayC;
+  late TextEditingController carC, amtC, costC, noteC, commissionC, driverPayC, fromC, toC;
   late String cat, drv;
   late DateTime d;
   bool paidNow = false;
@@ -608,6 +653,8 @@ class _AddEditPageState extends State<AddEditPage> {
     noteC = TextEditingController(text: old?['note'] ?? '');
     commissionC = TextEditingController(text: old == null ? '' : fm(n0(old['commission'])));
     driverPayC = TextEditingController(text: old == null ? '' : fm(n0(old['driver_pay'])));
+    fromC = TextEditingController(text: old?['from'] ?? '');
+    toC = TextEditingController(text: old?['to'] ?? '');
     cat = old?['cat'] ?? outCats.first;
     drv = old?['driver'] ?? noDrv;
     d = old == null ? DateTime.now() : DateTime.parse(old['date']);
@@ -616,7 +663,7 @@ class _AddEditPageState extends State<AddEditPage> {
 
   @override
   void dispose() {
-    carC.dispose(); amtC.dispose(); costC.dispose(); noteC.dispose(); commissionC.dispose(); driverPayC.dispose();
+    carC.dispose(); amtC.dispose(); costC.dispose(); noteC.dispose(); commissionC.dispose(); driverPayC.dispose(); fromC.dispose(); toC.dispose();
     super.dispose();
   }
 
@@ -629,6 +676,12 @@ class _AddEditPageState extends State<AddEditPage> {
         child: Column(children: [
           TextField(controller: carC, decoration: const InputDecoration(labelText: 'গাড়ির নাম/নম্বর', border: OutlineInputBorder())),
           const SizedBox(height: 12),
+          if (t == 'trip') ...[
+            TextField(controller: fromC, decoration: const InputDecoration(labelText: 'কোথা থেকে', border: OutlineInputBorder(), prefixIcon: Icon(Icons.location_on))),
+            const SizedBox(height: 12),
+            TextField(controller: toC, decoration: const InputDecoration(labelText: 'কোথায়', border: OutlineInputBorder(), prefixIcon: Icon(Icons.flag))),
+            const SizedBox(height: 12),
+          ],
           TextField(controller: amtC, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: t == 'trip' ? 'ট্রিপের ভাড়া (৳)' : 'পরিমাণ (৳)', border: const OutlineInputBorder())),
           if (t == 'trip' || t == 'self') ...[
             const SizedBox(height: 12),
@@ -662,6 +715,8 @@ class _AddEditPageState extends State<AddEditPage> {
                 'amt': a,
                 'cost': (t == 'trip' || t == 'self') ? (double.tryParse(costC.text.trim()) ?? 0) : 0,
                 'commission': (t == 'trip' || t == 'self') ? commission : 0,
+                'from': fromC.text.trim(),
+                'to': toC.text.trim(),
                 'driver': drv == noDrv ? null : drv,
                 'driver_pay': paid,
                 'note': noteC.text.trim(),
