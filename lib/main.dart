@@ -10,6 +10,10 @@ import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:googleapis/sheets/v4.dart' as sheets;
+import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
+
 
 void main() => runApp(const App());
 
@@ -61,7 +65,13 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   bool _loading = true;
-  String? _currentUser;
+  GoogleSignInAccount? _currentUser;
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    scopes: [
+      'email',
+      'https://www.googleapis.com/auth/spreadsheets',
+    ],
+  );
 
   @override
   void initState() {
@@ -70,12 +80,22 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _checkAuth() async {
-    final p = await SharedPreferences.getInstance();
-    final user = p.getString('currentUser');
+    final user = await _googleSignIn.signInSilently();
     setState(() {
       _currentUser = user;
       _loading = false;
     });
+  }
+
+  Future<void> _login() async {
+    try {
+      final user = await _googleSignIn.signIn();
+      if (user != null) {
+        setState(() => _currentUser = user);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('লগইন ব্যর্থ: $e')));
+    }
   }
 
   @override
@@ -84,98 +104,35 @@ class _AuthGateState extends State<AuthGate> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (_currentUser == null) {
-      return LoginPage(onLogin: (user) async {
-        final p = await SharedPreferences.getInstance();
-        await p.setString('currentUser', user);
-        setState(() => _currentUser = user);
-      });
-    }
-    return Home(currentUser: _currentUser!);
-  }
-}
-
-class LoginPage extends StatefulWidget {
-  final Function(String) onLogin;
-  const LoginPage({super.key, required this.onLogin});
-  @override
-  State<LoginPage> createState() => _LoginPageState();
-}
-
-class _LoginPageState extends State<LoginPage> {
-  final userC = TextEditingController();
-  final passC = TextEditingController();
-  bool isSignup = false;
-
-  Future<Map<String, String>> _getUsers() async {
-    final p = await SharedPreferences.getInstance();
-    final s = p.getString('users') ?? '{}';
-    return Map<String, String>.from(jsonDecode(s));
-  }
-
-  Future<void> _saveUsers(Map<String, String> users) async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('users', jsonEncode(users));
-  }
-
-  Future<void> _submit() async {
-    final u = userC.text.trim();
-    final pw = passC.text.trim();
-    if (u.isEmpty || pw.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Username ও Password দিন')));
-      return;
-    }
-    final users = await _getUsers();
-    if (isSignup) {
-      if (users.containsKey(u)) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('এই Username আগে থেকে আছে')));
-        return;
-      }
-      users[u] = pw;
-      await _saveUsers(users);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('অ্যাকাউন্ট তৈরি হয়েছে। এখন লগইন করুন')));
-      setState(() => isSignup = false);
-      return;
-    }
-    if (users[u] == pw) {
-      widget.onLogin(u);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Username বা Password ভুল')));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+      return Scaffold(
+        body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.directions_car, size: 80, color: Colors.teal),
               const SizedBox(height: 16),
-              Text(isSignup ? 'নতুন অ্যাকাউন্ট' : 'লগইন', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              const Text('গাড়ির হিসাব', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 24),
-              TextField(controller: userC, decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder())),
-              const SizedBox(height: 12),
-              TextField(controller: passC, obscureText: true, decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder())),
-              const SizedBox(height: 20),
-              FilledButton(onPressed: _submit, child: Text(isSignup ? 'অ্যাকাউন্ট তৈরি করুন' : 'লগইন')),
-              TextButton(
-                onPressed: () => setState(() => isSignup = !isSignup),
-                child: Text(isSignup ? 'আগে থেকে অ্যাকাউন্ট আছে? লগইন করুন' : 'নতুন অ্যাকাউন্ট তৈরি করুন'),
+              FilledButton.icon(
+                onPressed: _login,
+                icon: const Icon(Icons.login),
+                label: const Text('Google দিয়ে লগইন করুন'),
               ),
+              const SizedBox(height: 12),
+              const Text('লগইন করলে আপনার Gmail-এর Google Sheet-এ ডাটা সেভ থাকবে', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
             ],
           ),
         ),
-      ),
-    );
+      );
+    }
+    return Home(googleUser: _currentUser!, googleSignIn: _googleSignIn);
   }
 }
 
 class Home extends StatefulWidget {
-  final String currentUser;
-  const Home({super.key, required this.currentUser});
+  final GoogleSignInAccount googleUser;
+  final GoogleSignIn googleSignIn;
+  const Home({super.key, required this.googleUser, required this.googleSignIn});
   @override
   State<Home> createState() => _HomeState();
 }
@@ -268,7 +225,7 @@ class _HomeState extends State<Home> {
 
   List<M> _l(dynamic s) => s == null ? [] : (s as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
-  String get _prefix => '${widget.currentUser}_';
+  String get _prefix => '${widget.googleUser.email}_';
 
   Future<void> load() async {
     p = await SharedPreferences.getInstance();
@@ -808,8 +765,7 @@ class _HomeState extends State<Home> {
             leading: const Icon(Icons.logout),
             title: const Text('লগআউট'),
             onTap: () async {
-              final p = await SharedPreferences.getInstance();
-              await p.remove('currentUser');
+              await widget.googleSignIn.signOut();
               if (mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const AuthGate()),
