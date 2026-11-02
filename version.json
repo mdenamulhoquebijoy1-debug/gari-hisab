@@ -1,1 +1,5 @@
-PLACEHOLDER_VER
+{
+  "version": "2.2.0",
+  "apk_url": "https://github.com/mdenamulhoquebijoy1-debug/gari-hisab/releases/download/v2.2.0/app-release.apk",
+  "message": "নতুন আপডেট: + আইকন সরিয়ে পুরোনো বাটন, ড্রাইভার ছবি, ব্যাকআপ উন্নত"
+}
