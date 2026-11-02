@@ -38,6 +38,31 @@ jobs:
         run: |
           sed -i '/<manifest/a \    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>\n    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
 
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > /tmp/upload-keystore.jks
+
+      - name: Create key.properties
+        run: |
+          cat > android/key.properties << EOF
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=/tmp/upload-keystore.jks
+          EOF
+
+      - name: Configure signing in build.gradle
+        run: |
+          if [ -f android/app/build.gradle.kts ]; then
+            # For Kotlin DSL - simplified signing config
+            sed -i '/android {/a \    signingConfigs {\n        create("release") {\n            storeFile = file("/tmp/upload-keystore.jks")\n            storePassword = "${{ secrets.KEYSTORE_PASSWORD }}"\n            keyAlias = "${{ secrets.KEY_ALIAS }}"\n            keyPassword = "${{ secrets.KEY_PASSWORD }}"\n        }\n    }' android/app/build.gradle.kts
+            sed -i 's/signingConfig = signingConfigs.getByName("debug")/signingConfig = signingConfigs.getByName("release")/' android/app/build.gradle.kts || true
+          else
+            # For Groovy
+            sed -i '/android {/a \    signingConfigs {\n        release {\n            storeFile file("/tmp/upload-keystore.jks")\n            storePassword "${{ secrets.KEYSTORE_PASSWORD }}"\n            keyAlias "${{ secrets.KEY_ALIAS }}"\n            keyPassword "${{ secrets.KEY_PASSWORD }}"\n        }\n    }' android/app/build.gradle
+            sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/' android/app/build.gradle || true
+          fi
+
       - run: flutter pub get
       - run: flutter build apk --release
 
