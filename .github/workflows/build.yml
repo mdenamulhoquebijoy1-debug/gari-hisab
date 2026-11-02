@@ -24,6 +24,17 @@ jobs:
 
       - run: flutter create --platforms=android --project-name car_hisab .
 
+      - name: Force version from pubspec
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+          echo "Using version: $VERSION"
+          # Update version in Android files if needed
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i "s/versionName = .*/versionName = \"$VERSION\"/" android/app/build.gradle.kts || true
+          elif [ -f android/app/build.gradle ]; then
+            sed -i "s/versionName .*/versionName \"$VERSION\"/" android/app/build.gradle || true
+          fi
+
       - name: Update compileSdk
         run: |
           if [ -f android/app/build.gradle.kts ]; then
@@ -54,11 +65,9 @@ jobs:
       - name: Configure signing in build.gradle
         run: |
           if [ -f android/app/build.gradle.kts ]; then
-            # For Kotlin DSL - simplified signing config
             sed -i '/android {/a \    signingConfigs {\n        create("release") {\n            storeFile = file("/tmp/upload-keystore.jks")\n            storePassword = "${{ secrets.KEYSTORE_PASSWORD }}"\n            keyAlias = "${{ secrets.KEY_ALIAS }}"\n            keyPassword = "${{ secrets.KEY_PASSWORD }}"\n        }\n    }' android/app/build.gradle.kts
             sed -i 's/signingConfig = signingConfigs.getByName("debug")/signingConfig = signingConfigs.getByName("release")/' android/app/build.gradle.kts || true
           else
-            # For Groovy
             sed -i '/android {/a \    signingConfigs {\n        release {\n            storeFile file("/tmp/upload-keystore.jks")\n            storePassword "${{ secrets.KEYSTORE_PASSWORD }}"\n            keyAlias "${{ secrets.KEY_ALIAS }}"\n            keyPassword "${{ secrets.KEY_PASSWORD }}"\n        }\n    }' android/app/build.gradle
             sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/' android/app/build.gradle || true
           fi
@@ -75,7 +84,7 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.VERSION }}
           name: গাড়ির হিসাব v${{ steps.version.outputs.VERSION }}
-          body: নতুন আপডেট - লোকেশন, ড্রাইভার হিসাব সহ সব ফিচার
+          body: নতুন আপডেট - সব ফিচার সহ
           files: build/app/outputs/flutter-apk/app-release.apk
           draft: false
           prerelease: false
