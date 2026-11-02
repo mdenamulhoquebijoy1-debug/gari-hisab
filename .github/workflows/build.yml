@@ -1,7 +1,11 @@
 name: Build APK
 on:
   push:
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -29,8 +33,6 @@ jobs:
             sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 36/' android/app/build.gradle
             sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 36/' android/app/build.gradle
           fi
-          echo "=== After update ==="
-          cat android/app/build.gradle.kts 2>/dev/null || cat android/app/build.gradle
 
       - name: Add permissions
         run: |
@@ -39,7 +41,16 @@ jobs:
       - run: flutter pub get
       - run: flutter build apk --release
 
-      - uses: actions/upload-artifact@v4
+      - name: Get version
+        id: version
+        run: echo "VERSION=$(jq -r .version version.json)" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: car-hisab-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: গাড়ির হিসাব v${{ steps.version.outputs.VERSION }}
+          body: নতুন আপডেট - লোকেশন, ড্রাইভার হিসাব সহ সব ফিচার
+          files: build/app/outputs/flutter-apk/app-release.apk
+          draft: false
+          prerelease: false
