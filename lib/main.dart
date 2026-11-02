@@ -28,7 +28,7 @@ class App extends StatelessWidget {
             elevation: 0,
           ),
         ),
-        home: const Home(),
+        home: const AuthGate(),
       );
 }
 
@@ -52,8 +52,130 @@ double ex(M e) => e['type'] == 'out' ? n0(e['amt']) : (e['type'] == 'trip' ? (n0
 double sIn(Iterable<M> l) => l.fold<double>(0, (s, e) => s + inc(e));
 double sEx(Iterable<M> l) => l.fold<double>(0, (s, e) => s + ex(e));
 
+
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  bool _loading = true;
+  String? _currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAuth();
+  }
+
+  Future<void> _checkAuth() async {
+    final p = await SharedPreferences.getInstance();
+    final user = p.getString('currentUser');
+    setState(() {
+      _currentUser = user;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_currentUser == null) {
+      return LoginPage(onLogin: (user) async {
+        final p = await SharedPreferences.getInstance();
+        await p.setString('currentUser', user);
+        setState(() => _currentUser = user);
+      });
+    }
+    return Home(currentUser: _currentUser!);
+  }
+}
+
+class LoginPage extends StatefulWidget {
+  final Function(String) onLogin;
+  const LoginPage({super.key, required this.onLogin});
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final userC = TextEditingController();
+  final passC = TextEditingController();
+  bool isSignup = false;
+
+  Future<Map<String, String>> _getUsers() async {
+    final p = await SharedPreferences.getInstance();
+    final s = p.getString('users') ?? '{}';
+    return Map<String, String>.from(jsonDecode(s));
+  }
+
+  Future<void> _saveUsers(Map<String, String> users) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('users', jsonEncode(users));
+  }
+
+  Future<void> _submit() async {
+    final u = userC.text.trim();
+    final pw = passC.text.trim();
+    if (u.isEmpty || pw.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Username ও Password দিন')));
+      return;
+    }
+    final users = await _getUsers();
+    if (isSignup) {
+      if (users.containsKey(u)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('এই Username আগে থেকে আছে')));
+        return;
+      }
+      users[u] = pw;
+      await _saveUsers(users);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('অ্যাকাউন্ট তৈরি হয়েছে। এখন লগইন করুন')));
+      setState(() => isSignup = false);
+      return;
+    }
+    if (users[u] == pw) {
+      widget.onLogin(u);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Username বা Password ভুল')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.directions_car, size: 80, color: Colors.teal),
+              const SizedBox(height: 16),
+              Text(isSignup ? 'নতুন অ্যাকাউন্ট' : 'লগইন', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 24),
+              TextField(controller: userC, decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder())),
+              const SizedBox(height: 12),
+              TextField(controller: passC, obscureText: true, decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder())),
+              const SizedBox(height: 20),
+              FilledButton(onPressed: _submit, child: Text(isSignup ? 'অ্যাকাউন্ট তৈরি করুন' : 'লগইন')),
+              TextButton(
+                onPressed: () => setState(() => isSignup = !isSignup),
+                child: Text(isSignup ? 'আগে থেকে অ্যাকাউন্ট আছে? লগইন করুন' : 'নতুন অ্যাকাউন্ট তৈরি করুন'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class Home extends StatefulWidget {
-  const Home({super.key});
+  final String currentUser;
+  const Home({super.key, required this.currentUser});
   @override
   State<Home> createState() => _HomeState();
 }
@@ -146,10 +268,12 @@ class _HomeState extends State<Home> {
 
   List<M> _l(dynamic s) => s == null ? [] : (s as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
+  String get _prefix => '${widget.currentUser}_';
+
   Future<void> load() async {
     p = await SharedPreferences.getInstance();
     try {
-      final a = p!.getString('entries'), r = p!.getString('rem'), d = p!.getString('drivers'), ph = p!.getString('driverPhotos');
+      final a = p!.getString('${_prefix}entries'), r = p!.getString('${_prefix}rem'), d = p!.getString('${_prefix}drivers'), ph = p!.getString('${_prefix}driverPhotos');
       items = _l(a == null ? null : jsonDecode(a));
       rem = _l(r == null ? null : jsonDecode(r));
       if (d != null) drivers = (jsonDecode(d) as Map).map((k, v) => MapEntry(k as String, (v as num).toDouble()));
@@ -159,10 +283,10 @@ class _HomeState extends State<Home> {
   }
 
   void save() {
-    p?.setString('entries', jsonEncode(items));
-    p?.setString('rem', jsonEncode(rem));
-    p?.setString('drivers', jsonEncode(drivers));
-    p?.setString('driverPhotos', jsonEncode(driverPhotos));
+    p?.setString('${_prefix}entries', jsonEncode(items));
+    p?.setString('${_prefix}rem', jsonEncode(rem));
+    p?.setString('${_prefix}drivers', jsonEncode(drivers));
+    p?.setString('${_prefix}driverPhotos', jsonEncode(driverPhotos));
     setState(() {});
   }
 
@@ -679,6 +803,21 @@ class _HomeState extends State<Home> {
           ListTile(title: Text(t('সব গাড়ি', 'All Cars')), onTap: () { setState(() => car = allCars); Navigator.pop(context); }),
           for (final c in cars)
             ListTile(title: Text(c), onTap: () { setState(() => car = c); Navigator.pop(context); }),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout),
+            title: const Text('লগআউট'),
+            onTap: () async {
+              final p = await SharedPreferences.getInstance();
+              await p.remove('currentUser');
+              if (mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const AuthGate()),
+                  (route) => false,
+                );
+              }
+            },
+          ),
         ]),
       ),
       body: [homeTab(), driverTab(), reportTab(), documentTab()][tab],
