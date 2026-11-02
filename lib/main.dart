@@ -87,7 +87,10 @@ class _HomeState extends State<Home> {
           'https://raw.githubusercontent.com/mdenamulhoquebijoy1-debug/gari-hisab/main/version.json'));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        if (_isNewer(data['version'] as String, info.version)) {
+        final remoteVer = data['version'] as String;
+        final lastDismissed = p?.getString('lastDismissedUpdate') ?? '0.0.0';
+        // Only show if remote is newer than installed AND newer than last dismissed
+        if (_isNewer(remoteVer, info.version) && _isNewer(remoteVer, lastDismissed)) {
           if (!mounted) return;
           showDialog(
             context: context,
@@ -95,7 +98,13 @@ class _HomeState extends State<Home> {
               title: const Text('নতুন আপডেট'),
               content: Text(data['message'] ?? 'আপডেট আছে'),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(c), child: const Text('পরে')),
+                TextButton(
+                  onPressed: () {
+                    p?.setString('lastDismissedUpdate', remoteVer);
+                    Navigator.pop(c);
+                  },
+                  child: const Text('পরে'),
+                ),
                 FilledButton(
                   onPressed: () {
                     Navigator.pop(c);
