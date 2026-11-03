@@ -861,10 +861,12 @@ class _AddEditPageState extends State<AddEditPage> {
           TextField(controller: toC, decoration: const InputDecoration(labelText: 'কোথায়', border: OutlineInputBorder())),
           const SizedBox(height: 12),
         ],
-        TextField(controller: amtC, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: t == 'out' ? 'খরচের টাকা (৳)' : 'আয় (৳)', border: const OutlineInputBorder())),
-        const SizedBox(height: 12),
+        if (t != 'self') ...[
+          TextField(controller: amtC, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: t == 'out' ? 'খরচের টাকা (৳)' : 'আয় (৳)', border: const OutlineInputBorder())),
+          const SizedBox(height: 12),
+        ],
         if (t == 'trip' || t == 'self') ...[
-          TextField(controller: costC, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'খরচ (৳)', border: OutlineInputBorder())),
+          TextField(controller: costC, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: t == 'self' ? 'নিজে ব্যবহারের খরচ (৳)' : 'খরচ (৳)', border: const OutlineInputBorder())),
           const SizedBox(height: 12),
           TextField(controller: commissionC, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'ড্রাইভার কমিশন (৳)', border: OutlineInputBorder())),
           const SizedBox(height: 12),
@@ -883,22 +885,27 @@ class _AddEditPageState extends State<AddEditPage> {
         const SizedBox(height: 20),
         FilledButton(
           onPressed: () {
-            final a = double.tryParse(amtC.text.trim());
-            if (a == null || a <= 0) return;
+            double a = 0;
+            if (t != 'self') {
+              final parsed = double.tryParse(amtC.text.trim());
+              if (parsed == null || parsed <= 0) return;
+              a = parsed;
+            }
             final commission = double.tryParse(commissionC.text.trim()) ?? 0;
             double paid = paidNow ? (double.tryParse(driverPayC.text.trim()) ?? commission) : 0;
+            final costVal = (t == 'trip' || t == 'self') ? (double.tryParse(costC.text.trim()) ?? 0) : 0;
             Navigator.pop(context, {
               'id': widget.old?['id'] ?? DateTime.now().millisecondsSinceEpoch,
               'car': carC.text.trim().isEmpty ? 'আমার গাড়ি' : carC.text.trim(),
               'type': t,
               'cat': t == 'out' ? cat : (t == 'trip' ? 'ট্রিপ' : 'নিজে ব্যবহার'),
               'amt': a,
-              'cost': (t == 'trip' || t == 'self') ? (double.tryParse(costC.text.trim()) ?? 0) : 0,
-              'commission': (t == 'trip' || t == 'self') ? commission : 0,
+              'cost': costVal,
+              'commission': (t == 'trip') ? commission : 0,
               'from': fromC.text.trim(),
               'to': toC.text.trim(),
               'driver': drv == noDrv ? null : drv,
-              'driver_pay': paid,
+              'driver_pay': (t == 'trip') ? paid : 0,
               'note': noteC.text.trim(),
               'date': d.toIso8601String(),
             });
