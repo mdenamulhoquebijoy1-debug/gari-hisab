@@ -600,7 +600,7 @@ class _HomeState extends State<Home> {
         return ListTile(
           contentPadding: EdgeInsets.zero,
           leading: Icon(e['type'] == 'trip' ? Icons.route : e['type'] == 'self' ? Icons.directions_car : Icons.receipt),
-          title: Text(e['type'] == 'trip' ? '${e['from'] ?? ''} → ${e['to'] ?? ''}' : e['cat'] ?? ''),
+          title: Text(e['type'] == 'trip' ? '${e['from'] ?? ''} → ${e['to'] ?? ''}' : (e['type'] == 'self' ? 'নিজে ব্যবহার' : e['cat'] ?? '')),
           subtitle: Text('${fd(DateTime.parse(e['date']))} • ${e['car']}'),
           trailing: editable ? Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(icon: const Icon(Icons.edit, size: 18), onPressed: () => openAddPage(e['type'], e)),
@@ -901,11 +901,11 @@ class _AddEditPageState extends State<AddEditPage> {
               'cat': t == 'out' ? cat : (t == 'trip' ? 'ট্রিপ' : 'নিজে ব্যবহার'),
               'amt': a,
               'cost': costVal,
-              'commission': (t == 'trip') ? commission : 0,
+              'commission': (t == 'trip' || t == 'self') ? commission : 0,
               'from': fromC.text.trim(),
               'to': toC.text.trim(),
               'driver': drv == noDrv ? null : drv,
-              'driver_pay': (t == 'trip') ? paid : 0,
+              'driver_pay': (t == 'trip' || t == 'self') ? paid : 0,
               'note': noteC.text.trim(),
               'date': d.toIso8601String(),
             });
